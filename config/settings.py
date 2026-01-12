@@ -148,5 +148,10 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
+        'django_components': {
+            'handlers': ['file', 'console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
     },
 }
