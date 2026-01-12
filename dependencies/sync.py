@@ -191,8 +191,81 @@ def sync_checkmarx_projects(service: CheckmarxService | None = None) -> int:
     return synced
 
 
-def sync_checkmarx_dependencies(service: CheckmarxService | None = None) -> int:
-    """Synchronize dependencies from Checkmarx SCA for all local projects."""
+def export_checkmarx_sboms(
+    service: CheckmarxService,
+    batch_size: int = 10,
+    batch_delay: float = 1.0,
+    on_progress: callable = None,
+) -> dict:
+    """Export SBOMs for all Checkmarx projects in batches.
+
+    Args:
+        service: CheckmarxService instance
+        batch_size: Number of SBOMs to export per batch
+        batch_delay: Seconds to wait between batches (default: 1.0)
+        on_progress: Optional callback(exported, skipped, failed, total) for progress updates
+
+    Returns:
+        dict with 'exported', 'skipped', 'failed', 'errors' counts
+    """
+    import time
+
+    result = {'exported': 0, 'skipped': 0, 'failed': 0, 'errors': []}
+
+    # Build list of (project_id, scan_id) pairs to process
+    to_export = []
+    for cx_project in service.get_projects():
+        scans = service.get_scans(cx_project.id)
+        if scans:
+            scan_id = scans[0].get('id') or scans[0].get('scanId')
+            if scan_id:
+                to_export.append((cx_project.id, cx_project.name, scan_id))
+
+    total = len(to_export)
+    processed = 0
+
+    for i in range(0, len(to_export), batch_size):
+        batch = to_export[i:i + batch_size]
+
+        for project_id, project_name, scan_id in batch:
+            # Check if already cached
+            if service.is_sbom_cached(scan_id):
+                result['skipped'] += 1
+                logger.info(f"SBOM already cached for {project_name} (scan: {scan_id})")
+            else:
+                try:
+                    service.export_sbom(scan_id, use_cache=False)
+                    result['exported'] += 1
+                    logger.info(f"Exported SBOM for {project_name} (scan: {scan_id})")
+                except Exception as e:
+                    result['failed'] += 1
+                    result['errors'].append({'project': project_name, 'scan_id': scan_id, 'error': str(e)})
+                    logger.error(f"Failed to export SBOM for {project_name}: {e}")
+
+            processed += 1
+            if on_progress:
+                on_progress(result['exported'], result['skipped'], result['failed'], total)
+
+        # Pause between batches to reduce server load
+        if batch_delay > 0 and i + batch_size < len(to_export):
+            time.sleep(batch_delay)
+
+    return result
+
+
+def sync_checkmarx_dependencies(
+    service: CheckmarxService | None = None,
+    use_cached_only: bool = False,
+) -> int:
+    """Synchronize dependencies from Checkmarx SCA for all local projects.
+
+    Args:
+        service: CheckmarxService instance
+        use_cached_only: If True, only process projects with cached SBOMs
+
+    Returns:
+        Number of dependencies synced
+    """
     if service is None:
         service = CheckmarxService()
 
@@ -208,7 +281,21 @@ def sync_checkmarx_dependencies(service: CheckmarxService | None = None) -> int:
             if not project:
                 continue
 
-            for dep in service.get_dependencies(cx_project.id):
+            # Get the latest scan
+            scans = service.get_scans(cx_project.id)
+            if not scans:
+                continue
+
+            scan_id = scans[0].get('id') or scans[0].get('scanId')
+            if not scan_id:
+                continue
+
+            # Skip if not cached and use_cached_only is True
+            if use_cached_only and not service.is_sbom_cached(scan_id):
+                logger.debug(f"Skipping {project_key}: SBOM not cached")
+                continue
+
+            for dep in service.get_dependencies_from_sbom(scan_id, cx_project.id):
                 # Create package as a project if it doesn't exist
                 package_key = f"pkg:{dep.package_name}"
                 target, _ = Project.objects.get_or_create(

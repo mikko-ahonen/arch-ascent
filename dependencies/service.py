@@ -1,10 +1,15 @@
 import os
+import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterator
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Default cache directory for SBOM files
+DEFAULT_SBOM_CACHE_DIR = os.environ.get('SBOM_CACHE_DIR', '.sbom_cache')
 
 
 # =============================================================================
@@ -150,17 +155,13 @@ class SonarQubeService:
 
 
 # =============================================================================
-# Checkmarx SCA Cloud Service
+# Checkmarx One SCA Service
 # =============================================================================
-
-# Default Checkmarx SCA cloud URLs
-CHECKMARX_IAM_URL = 'https://iam.checkmarx.net'
-CHECKMARX_API_URL = 'https://api-sca.checkmarx.net'
 
 
 @dataclass
 class CheckmarxProject:
-    """Project data from Checkmarx SCA API."""
+    """Project data from Checkmarx One API."""
     id: str
     name: str
     created_on: str | None = None
@@ -169,7 +170,7 @@ class CheckmarxProject:
 
 @dataclass
 class CheckmarxDependency:
-    """Dependency data from Checkmarx SCA."""
+    """Dependency data from Checkmarx One SCA."""
     source_project: str
     package_name: str
     version: str
@@ -177,60 +178,77 @@ class CheckmarxDependency:
 
 
 class CheckmarxService:
-    """Checkmarx SCA Cloud API client for project and dependency synchronization."""
+    """Checkmarx One SCA API client using OAuth client credentials.
+
+    Required configuration (via constructor or environment variables):
+    - base_url: Checkmarx One base URL (e.g., https://ast.checkmarx.net)
+    - tenant: Tenant identifier
+    - client_id: OAuth client ID
+    - client_secret: OAuth client secret
+
+    Optional:
+    - cache_dir: Directory for caching SBOM files (default: .sbom_cache)
+    """
 
     def __init__(
         self,
-        api_url: str | None = None,
-        iam_url: str | None = None,
+        base_url: str | None = None,
         tenant: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        cache_dir: str | None = None,
     ):
-        self.api_url = (api_url or os.environ.get('CHECKMARX_API_URL', CHECKMARX_API_URL)).rstrip('/')
-        self.iam_url = (iam_url or os.environ.get('CHECKMARX_IAM_URL', CHECKMARX_IAM_URL)).rstrip('/')
+        self.base_url = (base_url or os.environ.get('CHECKMARX_BASE_URL', '')).rstrip('/')
         self.tenant = tenant or os.environ.get('CHECKMARX_TENANT', '')
-        self.username = username or os.environ.get('CHECKMARX_USERNAME', '')
-        self.password = password or os.environ.get('CHECKMARX_PASSWORD', '')
+        self.client_id = client_id or os.environ.get('CHECKMARX_CLIENT_ID', '')
+        self.client_secret = client_secret or os.environ.get('CHECKMARX_CLIENT_SECRET', '')
+        self.cache_dir = Path(cache_dir or DEFAULT_SBOM_CACHE_DIR)
         self._client: httpx.Client | None = None
         self._access_token: str | None = None
+
+        # Derive IAM URL from base URL
+        # e.g., https://ast.checkmarx.net -> https://iam.checkmarx.net
+        # e.g., https://eu.ast.checkmarx.net -> https://eu.iam.checkmarx.net
+        if self.base_url:
+            self._iam_url = self.base_url.replace('.ast.', '.iam.').replace('://ast.', '://iam.')
+        else:
+            self._iam_url = ''
 
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
             self._client = httpx.Client(
-                base_url=self.api_url,
+                base_url=self.base_url,
                 timeout=30.0,
             )
             self._authenticate()
         return self._client
 
     def _authenticate(self):
-        """Authenticate with Checkmarx IAM and obtain access token."""
-        if not self.username or not self.password or not self.tenant:
-            logger.warning("Checkmarx credentials not configured (need tenant, username, password)")
-            return
+        """Authenticate using OAuth client credentials flow."""
+        if not self.client_id or not self.client_secret or not self.tenant:
+            raise ValueError("Checkmarx credentials not configured (need base_url, tenant, client_id, client_secret)")
 
         try:
-            # Authenticate against IAM endpoint
+            # OAuth token endpoint using client credentials grant
+            token_url = f'{self._iam_url}/auth/realms/{self.tenant}/protocol/openid-connect/token'
             response = httpx.post(
-                f'{self.iam_url}/identity/connect/token',
+                token_url,
                 data={
-                    'username': self.username,
-                    'password': self.password,
-                    'acr_values': f'Tenant:{self.tenant}',
-                    'grant_type': 'password',
-                    'scope': 'sca_api',
-                    'client_id': 'sca_resource_owner',
+                    'grant_type': 'client_credentials',
+                    'client_id': self.client_id,
+                    'client_secret': self.client_secret,
                 },
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
                 timeout=30.0,
             )
             response.raise_for_status()
             data = response.json()
             self._access_token = data.get('access_token')
-            logger.info("Checkmarx authentication successful")
+            logger.info("Checkmarx One authentication successful")
         except httpx.HTTPStatusError as e:
-            logger.error(f"Checkmarx authentication failed: {e}")
+            logger.error(f"Checkmarx One authentication failed: {e}")
+            raise
 
     def close(self):
         if self._client:
@@ -243,26 +261,46 @@ class CheckmarxService:
     def __exit__(self, *args):
         self.close()
 
-    def _get(self, endpoint: str, params: dict | None = None) -> dict | list:
-        """Make authenticated GET request to Checkmarx SCA API."""
-        headers = {}
-        if self._access_token:
-            headers['Authorization'] = f'Bearer {self._access_token}'
+    def _request(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict | None = None,
+        json_data: dict | None = None,
+    ) -> dict | list:
+        """Make authenticated request to Checkmarx One API."""
+        headers = {
+            'Authorization': f'Bearer {self._access_token}',
+        }
 
-        response = self.client.get(f"/{endpoint}", params=params, headers=headers)
+        response = self.client.request(
+            method,
+            f"/{endpoint}",
+            params=params,
+            json=json_data,
+            headers=headers,
+        )
         response.raise_for_status()
         return response.json()
 
+    def _get(self, endpoint: str, params: dict | None = None) -> dict | list:
+        """Make authenticated GET request."""
+        return self._request('GET', endpoint, params=params)
+
+    def _post(self, endpoint: str, json_data: dict | None = None) -> dict | list:
+        """Make authenticated POST request."""
+        return self._request('POST', endpoint, json_data=json_data)
+
     def get_projects(self) -> Iterator[CheckmarxProject]:
-        """Fetch all projects from Checkmarx SCA."""
+        """Fetch all projects from Checkmarx One."""
         try:
-            data = self._get('risk-management/projects')
-            projects = data if isinstance(data, list) else data.get('items', [])
+            data = self._get('api/projects')
+            projects = data if isinstance(data, list) else data.get('projects', [])
             for proj in projects:
                 yield CheckmarxProject(
                     id=proj['id'],
                     name=proj['name'],
-                    created_on=proj.get('createdOn'),
+                    created_on=proj.get('createdAt'),
                     tags=proj.get('tags'),
                 )
         except httpx.HTTPStatusError as e:
@@ -271,41 +309,190 @@ class CheckmarxService:
     def get_project(self, project_id: str) -> CheckmarxProject | None:
         """Fetch a single project by ID."""
         try:
-            data = self._get(f'risk-management/projects/{project_id}')
+            data = self._get(f'api/projects/{project_id}')
             if data:
                 return CheckmarxProject(
                     id=data['id'],
                     name=data['name'],
-                    created_on=data.get('createdOn'),
+                    created_on=data.get('createdAt'),
                     tags=data.get('tags'),
                 )
         except httpx.HTTPStatusError as e:
             logger.warning(f"Failed to fetch project {project_id}: {e}")
         return None
 
+    def get_scans(self, project_id: str) -> list[dict]:
+        """Fetch scans for a project."""
+        try:
+            data = self._get('api/scans', {'project-id': project_id})
+            return data if isinstance(data, list) else data.get('scans', [])
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Failed to fetch scans for project {project_id}: {e}")
+            return []
+
+    def _get_cache_path(self, scan_id: str) -> Path:
+        """Get the cache file path for a scan's SBOM."""
+        return self.cache_dir / f"{scan_id}.json"
+
+    def _ensure_cache_dir(self):
+        """Ensure the cache directory exists."""
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_cached_sbom(self, scan_id: str) -> dict | None:
+        """Get cached SBOM for a scan if it exists.
+
+        Args:
+            scan_id: The scan ID
+
+        Returns:
+            Parsed SBOM dict if cached, None otherwise
+        """
+        cache_path = self._get_cache_path(scan_id)
+        if cache_path.exists():
+            try:
+                with open(cache_path) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to read cached SBOM for {scan_id}: {e}")
+        return None
+
+    def is_sbom_cached(self, scan_id: str) -> bool:
+        """Check if SBOM is already cached for a scan."""
+        return self._get_cache_path(scan_id).exists()
+
+    def list_cached_scans(self) -> list[str]:
+        """List all scan IDs that have cached SBOMs."""
+        if not self.cache_dir.exists():
+            return []
+        return [p.stem for p in self.cache_dir.glob('*.json')]
+
+    def export_sbom(
+        self,
+        scan_id: str,
+        output_path: str | None = None,
+        hide_dev_dependencies: bool = False,
+        poll_interval: float = 2.0,
+        max_wait: float = 300.0,
+        use_cache: bool = True,
+    ) -> str:
+        """Export SBOM in CycloneDX JSON format for a scan.
+
+        Args:
+            scan_id: The scan ID to export SBOM for
+            output_path: Local file path to save the SBOM JSON (default: cache directory)
+            hide_dev_dependencies: Whether to exclude dev/test dependencies
+            poll_interval: Seconds between status checks
+            max_wait: Maximum seconds to wait for export completion
+            use_cache: If True, return cached SBOM if available (default: True)
+
+        Returns:
+            Path to the saved SBOM file
+
+        Raises:
+            TimeoutError: If export doesn't complete within max_wait
+            httpx.HTTPStatusError: On API errors
+        """
+        import time
+
+        self._ensure_cache_dir()
+
+        # Use cache path if no output path specified
+        if output_path is None:
+            output_path = str(self._get_cache_path(scan_id))
+
+        # Check cache first
+        if use_cache and Path(output_path).exists():
+            logger.info(f"Using cached SBOM for scan {scan_id}")
+            return output_path
+
+        # Request SBOM export via Export Service API
+        export_response = self._post('api/sca/export/requests', {
+            'ScanId': scan_id,
+            'FileFormat': 'CycloneDxJson',
+            'ExportParameters': {
+                'hideDevAndTestDependencies': hide_dev_dependencies,
+            },
+        })
+        export_id = export_response['exportId']
+        logger.info(f"SBOM export requested, exportId: {export_id}")
+
+        # Poll for completion
+        elapsed = 0.0
+        while elapsed < max_wait:
+            status_response = self._get('api/sca/export/requests', {'exportId': export_id})
+            status = status_response.get('exportStatus')
+
+            if status == 'Completed':
+                file_url = status_response.get('fileUrl')
+                if not file_url:
+                    raise ValueError("Export completed but no fileUrl provided")
+
+                # Download the SBOM file
+                download_response = httpx.get(file_url, timeout=60.0)
+                download_response.raise_for_status()
+
+                # Save to local file
+                with open(output_path, 'wb') as f:
+                    f.write(download_response.content)
+
+                logger.info(f"SBOM saved to {output_path}")
+                return output_path
+
+            elif status == 'Failed':
+                raise RuntimeError(f"SBOM export failed for scan {scan_id}")
+
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        raise TimeoutError(f"SBOM export timed out after {max_wait}s for scan {scan_id}")
+
+    def get_dependencies_from_sbom(self, scan_id: str, project_id: str) -> Iterator[CheckmarxDependency]:
+        """Extract dependencies from a cached or exported SBOM.
+
+        Args:
+            scan_id: The scan ID
+            project_id: The project ID (used for source reference)
+
+        Yields:
+            CheckmarxDependency objects
+        """
+        # Try to get from cache first
+        sbom = self.get_cached_sbom(scan_id)
+
+        if sbom is None:
+            # Export and cache the SBOM
+            self.export_sbom(scan_id)
+            sbom = self.get_cached_sbom(scan_id)
+
+        if sbom is None:
+            logger.warning(f"Could not get SBOM for scan {scan_id}")
+            return
+
+        # Extract components from CycloneDX format
+        for component in sbom.get('components', []):
+            yield CheckmarxDependency(
+                source_project=project_id,
+                package_name=component.get('name', ''),
+                version=component.get('version', ''),
+                is_direct=component.get('scope') != 'optional',
+            )
+
     def get_dependencies(self, project_id: str) -> Iterator[CheckmarxDependency]:
-        """Fetch dependencies for a project from latest scan."""
+        """Fetch dependencies for a project from latest scan.
+
+        This parses the SBOM export to extract dependency information.
+        For full SBOM data, use export_sbom() directly.
+        """
         try:
             # Get latest scan for the project
-            scans = self._get('risk-management/scans', {'projectId': project_id})
-            scan_list = scans if isinstance(scans, list) else scans.get('items', [])
-
-            if not scan_list:
+            scans = self.get_scans(project_id)
+            if not scans:
                 return
 
-            latest_scan = scan_list[0]
-            scan_id = latest_scan['scanId']
+            latest_scan = scans[0]
+            scan_id = latest_scan.get('id') or latest_scan.get('scanId')
 
-            # Get packages from the scan
-            packages = self._get(f'risk-management/scans/{scan_id}/packages')
-            pkg_list = packages if isinstance(packages, list) else packages.get('items', [])
+            yield from self.get_dependencies_from_sbom(scan_id, project_id)
 
-            for pkg in pkg_list:
-                yield CheckmarxDependency(
-                    source_project=project_id,
-                    package_name=pkg.get('name', pkg.get('id', '')),
-                    version=pkg.get('version', ''),
-                    is_direct=pkg.get('isDirect', pkg.get('isDirectDependency', True)),
-                )
-        except httpx.HTTPStatusError as e:
+        except Exception as e:
             logger.debug(f"No dependencies for project {project_id}: {e}")
