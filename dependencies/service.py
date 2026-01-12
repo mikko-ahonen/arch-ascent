@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -273,6 +274,12 @@ class CheckmarxService:
     def __exit__(self, *args):
         self.close()
 
+    def _throttle(self):
+        """Wait before making a request to avoid overloading the server."""
+        if self.request_delay > 0:
+            logger.info(f"Throttling: waiting {self.request_delay}s before next request")
+            time.sleep(self.request_delay)
+
     def _request(
         self,
         method: str,
@@ -281,21 +288,21 @@ class CheckmarxService:
         json_data: dict | None = None,
     ) -> dict | list:
         """Make authenticated request to Checkmarx One API."""
-        import time
-
         # Ensure we're authenticated
         if not self._access_token:
             self._authenticate()
+
+        # Wait before making request
+        self._throttle()
 
         headers = {
             'Authorization': f'Bearer {self._access_token}',
         }
 
-        # Ensure endpoint doesn't have leading slash for proper URL joining
         endpoint = endpoint.lstrip('/')
         url = f"{self.base_url}/{endpoint}"
 
-        logger.debug(f"Request: {method} {url}")
+        logger.info(f"Request: {method} {url}")
 
         response = httpx.request(
             method,
@@ -306,10 +313,6 @@ class CheckmarxService:
             timeout=30.0,
         )
         response.raise_for_status()
-
-        # Throttle requests to avoid overloading the server
-        if self.request_delay > 0:
-            time.sleep(self.request_delay)
 
         return response.json()
 
@@ -469,12 +472,10 @@ class CheckmarxService:
                     raise ValueError("Export completed but no fileUrl provided")
 
                 # Download the SBOM file
+                self._throttle()
+                logger.info(f"Downloading SBOM from {file_url}")
                 download_response = httpx.get(file_url, timeout=60.0)
                 download_response.raise_for_status()
-
-                # Throttle after download
-                if self.request_delay > 0:
-                    time.sleep(self.request_delay)
 
                 # Save to local file (cache)
                 with open(output_path, 'wb') as f:
