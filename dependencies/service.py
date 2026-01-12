@@ -273,16 +273,27 @@ class CheckmarxService:
         json_data: dict | None = None,
     ) -> dict | list:
         """Make authenticated request to Checkmarx One API."""
+        # Ensure we're authenticated
+        if not self._access_token:
+            self._authenticate()
+
         headers = {
             'Authorization': f'Bearer {self._access_token}',
         }
 
-        response = self.client.request(
+        # Ensure endpoint doesn't have leading slash for proper URL joining
+        endpoint = endpoint.lstrip('/')
+        url = f"{self.base_url}/{endpoint}"
+
+        logger.debug(f"Request: {method} {url}")
+
+        response = httpx.request(
             method,
-            f"/{endpoint}",
+            url,
             params=params,
             json=json_data,
             headers=headers,
+            timeout=30.0,
         )
         response.raise_for_status()
         return response.json()
