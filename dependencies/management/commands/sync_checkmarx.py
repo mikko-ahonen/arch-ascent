@@ -45,8 +45,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--batch-delay',
             type=float,
-            default=1.0,
-            help='Seconds to wait between batches (default: 1.0)',
+            default=10.0,
+            help='Seconds to wait between batches (default: 10.0)',
         )
         parser.add_argument(
             '--projects-only',

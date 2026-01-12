@@ -194,7 +194,7 @@ def sync_checkmarx_projects(service: CheckmarxService | None = None) -> int:
 def export_checkmarx_sboms(
     service: CheckmarxService,
     batch_size: int = 10,
-    batch_delay: float = 1.0,
+    batch_delay: float = 10.0,
     on_progress: callable = None,
 ) -> dict:
     """Export SBOMs for all Checkmarx projects in batches.
