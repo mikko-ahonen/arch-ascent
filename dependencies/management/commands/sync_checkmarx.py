@@ -73,6 +73,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip SBOM export, only use cached SBOMs for dependencies',
         )
+        parser.add_argument(
+            '--request-delay',
+            type=float,
+            help='Seconds to wait between API requests (default: 1.0 or CHECKMARX_REQUEST_DELAY env var)',
+        )
 
     def handle(self, *args, **options):
         base_url = options.get('base_url')
@@ -87,6 +92,7 @@ class Command(BaseCommand):
         export_only = options.get('export_only')
         dependencies_only = options.get('dependencies_only')
         skip_export = options.get('skip_export')
+        request_delay = options.get('request_delay')
 
         service = CheckmarxService(
             base_url=base_url,
@@ -95,6 +101,7 @@ class Command(BaseCommand):
             client_id=client_id,
             client_secret=client_secret,
             cache_dir=cache_dir,
+            request_delay=request_delay,
         )
 
         if not service.base_url:

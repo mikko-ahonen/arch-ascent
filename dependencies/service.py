@@ -198,6 +198,7 @@ class CheckmarxService:
         client_id: str | None = None,
         client_secret: str | None = None,
         cache_dir: str | None = None,
+        request_delay: float | None = None,
     ):
         self.base_url = (base_url or os.environ.get('CHECKMARX_BASE_URL', '')).rstrip('/')
         self.tenant = tenant or os.environ.get('CHECKMARX_TENANT', '')
@@ -206,6 +207,13 @@ class CheckmarxService:
         self.cache_dir = Path(cache_dir or DEFAULT_SBOM_CACHE_DIR)
         self._client: httpx.Client | None = None
         self._access_token: str | None = None
+
+        # Throttle delay between API requests (seconds)
+        if request_delay is not None:
+            self.request_delay = request_delay
+        else:
+            env_delay = os.environ.get('CHECKMARX_REQUEST_DELAY', '')
+            self.request_delay = float(env_delay) if env_delay else 1.0
 
         # Use explicit IAM URL or derive from base URL
         if iam_url:
@@ -273,6 +281,8 @@ class CheckmarxService:
         json_data: dict | None = None,
     ) -> dict | list:
         """Make authenticated request to Checkmarx One API."""
+        import time
+
         # Ensure we're authenticated
         if not self._access_token:
             self._authenticate()
@@ -296,6 +306,11 @@ class CheckmarxService:
             timeout=30.0,
         )
         response.raise_for_status()
+
+        # Throttle requests to avoid overloading the server
+        if self.request_delay > 0:
+            time.sleep(self.request_delay)
+
         return response.json()
 
     def _get(self, endpoint: str, params: dict | None = None) -> dict | list:
@@ -455,11 +470,11 @@ class CheckmarxService:
                 download_response = httpx.get(file_url, timeout=60.0)
                 download_response.raise_for_status()
 
-                # Save to local file
+                # Save to local file (cache)
                 with open(output_path, 'wb') as f:
                     f.write(download_response.content)
 
-                logger.info(f"SBOM saved to {output_path}")
+                logger.info(f"Cached SBOM to file: {output_path}")
                 return output_path
 
             elif status == 'Failed':
