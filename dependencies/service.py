@@ -9,7 +9,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # Default cache directory for SBOM files
-DEFAULT_SBOM_CACHE_DIR = os.environ.get('SBOM_CACHE_DIR', '.sbom_cache')
+DEFAULT_SBOM_CACHE_DIR = os.environ.get('SBOM_CACHE_DIR', 'sbom_cache')
 
 
 # =============================================================================
@@ -371,7 +371,9 @@ class CheckmarxService:
 
     def _get_cache_path(self, scan_id: str) -> Path:
         """Get the cache file path for a scan's SBOM."""
-        return self.cache_dir / f"{scan_id}.json"
+        # Sanitize scan_id for safe filenames (alphanumeric, hyphen, underscore only)
+        safe_id = ''.join(c if c.isalnum() or c in '-_' else '_' for c in scan_id)
+        return self.cache_dir / f"{safe_id}.json"
 
     def _ensure_cache_dir(self):
         """Ensure the cache directory exists."""
