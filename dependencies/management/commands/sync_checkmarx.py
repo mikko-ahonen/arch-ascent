@@ -122,10 +122,9 @@ class Command(BaseCommand):
             self.stdout.write(f'Exporting SBOMs sequentially{delay_msg}...')
             self.stdout.write('  (Previously exported SBOMs will be skipped)')
 
-            def on_progress(exported, skipped, failed, processed):
+            def on_progress(exported, skipped, processed):
                 self.stdout.write(
-                    f'  Processed: {processed} '
-                    f'(exported: {exported}, cached: {skipped}, failed: {failed})',
+                    f'  Processed: {processed} (exported: {exported}, cached: {skipped})',
                     ending='\r'
                 )
                 self.stdout.flush()
@@ -136,15 +135,11 @@ class Command(BaseCommand):
                 self.stdout.write('')  # newline after progress
                 self.stdout.write(self.style.SUCCESS(
                     f'SBOM export complete: {result["exported"]} exported, '
-                    f'{result["skipped"]} cached, {result["failed"]} failed'
+                    f'{result["skipped"]} cached'
                 ))
-                if result['errors']:
-                    for err in result['errors'][:5]:  # Show first 5 errors
-                        self.stderr.write(f'  Error: {err["project"]}: {err["error"]}')
-                    if len(result['errors']) > 5:
-                        self.stderr.write(f'  ... and {len(result["errors"]) - 5} more errors')
             except Exception as e:
-                self.stderr.write(self.style.ERROR(f'Failed to export SBOMs: {e}'))
+                self.stdout.write('')  # newline after progress
+                self.stderr.write(self.style.ERROR(f'Failed: {e}'))
                 return
 
         if export_only:

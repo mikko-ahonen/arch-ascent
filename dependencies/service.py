@@ -326,27 +326,24 @@ class CheckmarxService:
 
     def get_projects(self) -> Iterator[CheckmarxProject]:
         """Fetch all projects from Checkmarx One with pagination."""
-        try:
-            offset = 0
-            limit = 100
-            while True:
-                data = self._get('api/projects', {'offset': offset, 'limit': limit})
-                projects = data.get('projects', [])
-                total_count = data.get('totalCount', 0)
+        offset = 0
+        limit = 100
+        while True:
+            data = self._get('api/projects', {'offset': offset, 'limit': limit})
+            projects = data.get('projects', [])
+            total_count = data.get('totalCount', 0)
 
-                for proj in projects:
-                    yield CheckmarxProject(
-                        id=proj['id'],
-                        name=proj['name'],
-                        created_on=proj.get('createdAt'),
-                        tags=proj.get('tags'),
-                    )
+            for proj in projects:
+                yield CheckmarxProject(
+                    id=proj['id'],
+                    name=proj['name'],
+                    created_on=proj.get('createdAt'),
+                    tags=proj.get('tags'),
+                )
 
-                offset += limit
-                if offset >= total_count or not projects:
-                    break
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to fetch Checkmarx projects: {e}")
+            offset += limit
+            if offset >= total_count or not projects:
+                break
 
     def get_project(self, project_id: str) -> CheckmarxProject | None:
         """Fetch a single project by ID."""
@@ -365,12 +362,8 @@ class CheckmarxService:
 
     def get_scans(self, project_id: str) -> list[dict]:
         """Fetch scans for a project."""
-        try:
-            data = self._get('api/scans', {'project-id': project_id})
-            return data if isinstance(data, list) else data.get('scans', [])
-        except httpx.HTTPStatusError as e:
-            logger.warning(f"Failed to fetch scans for project {project_id}: {e}")
-            return []
+        data = self._get('api/scans', {'project-id': project_id})
+        return data if isinstance(data, list) else data.get('scans', [])
 
     def _get_cache_path(self, scan_id: str) -> Path:
         """Get the cache file path for a scan's SBOM."""

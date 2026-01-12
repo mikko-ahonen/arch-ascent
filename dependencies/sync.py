@@ -204,15 +204,16 @@ def export_checkmarx_sboms(
     4. Move to next project
 
     All request throttling is handled by the service's request_delay setting.
+    HTTP errors will propagate and stop processing immediately.
 
     Args:
         service: CheckmarxService instance
-        on_progress: Optional callback(exported, skipped, failed, processed) for progress updates
+        on_progress: Optional callback(exported, skipped, processed) for progress updates
 
     Returns:
-        dict with 'exported', 'skipped', 'failed', 'errors' counts
+        dict with 'exported', 'skipped' counts
     """
-    result = {'exported': 0, 'skipped': 0, 'failed': 0, 'errors': []}
+    result = {'exported': 0, 'skipped': 0}
     processed = 0
 
     # Process projects one at a time using the generator
@@ -225,14 +226,14 @@ def export_checkmarx_sboms(
         if not scans:
             logger.info(f"  No scans found for {cx_project.name}")
             if on_progress:
-                on_progress(result['exported'], result['skipped'], result['failed'], processed)
+                on_progress(result['exported'], result['skipped'], processed)
             continue
 
         scan_id = scans[0].get('id') or scans[0].get('scanId')
         if not scan_id:
             logger.info(f"  No scan ID found for {cx_project.name}")
             if on_progress:
-                on_progress(result['exported'], result['skipped'], result['failed'], processed)
+                on_progress(result['exported'], result['skipped'], processed)
             continue
 
         # Check if already cached
@@ -240,19 +241,14 @@ def export_checkmarx_sboms(
             result['skipped'] += 1
             logger.info(f"  SBOM already cached (scan: {scan_id})")
         else:
-            try:
-                service.export_sbom(scan_id, use_cache=False)
-                result['exported'] += 1
-                logger.info(f"  Exported SBOM (scan: {scan_id})")
-            except Exception as e:
-                result['failed'] += 1
-                result['errors'].append({'project': cx_project.name, 'scan_id': scan_id, 'error': str(e)})
-                logger.error(f"  Failed to export SBOM: {e}")
+            service.export_sbom(scan_id, use_cache=False)
+            result['exported'] += 1
+            logger.info(f"  Exported SBOM (scan: {scan_id})")
 
         if on_progress:
-            on_progress(result['exported'], result['skipped'], result['failed'], processed)
+            on_progress(result['exported'], result['skipped'], processed)
 
-    logger.info(f"Completed: {result['exported']} exported, {result['skipped']} cached, {result['failed']} failed")
+    logger.info(f"Completed: {result['exported']} exported, {result['skipped']} cached")
     return result
 
 
