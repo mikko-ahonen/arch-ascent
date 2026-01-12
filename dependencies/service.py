@@ -200,6 +200,7 @@ class CheckmarxService:
         client_secret: str | None = None,
         cache_dir: str | None = None,
         request_delay: float | None = None,
+        export_delay: float | None = None,
     ):
         self.base_url = (base_url or os.environ.get('CHECKMARX_BASE_URL', '')).rstrip('/')
         self.tenant = tenant or os.environ.get('CHECKMARX_TENANT', '')
@@ -209,12 +210,19 @@ class CheckmarxService:
         self._client: httpx.Client | None = None
         self._access_token: str | None = None
 
-        # Throttle delay between API requests (seconds)
+        # Throttle delay between regular API requests (seconds)
         if request_delay is not None:
             self.request_delay = request_delay
         else:
             env_delay = os.environ.get('CHECKMARX_REQUEST_DELAY', '')
             self.request_delay = float(env_delay) if env_delay else 1.0
+
+        # Throttle delay for SBOM export operations (seconds) - typically longer
+        if export_delay is not None:
+            self.export_delay = export_delay
+        else:
+            env_delay = os.environ.get('CHECKMARX_EXPORT_DELAY', '')
+            self.export_delay = float(env_delay) if env_delay else 10.0
 
         # Use explicit IAM URL or derive from base URL
         if iam_url:
@@ -274,11 +282,12 @@ class CheckmarxService:
     def __exit__(self, *args):
         self.close()
 
-    def _throttle(self):
+    def _throttle(self, delay: float | None = None):
         """Wait before making a request to avoid overloading the server."""
-        if self.request_delay > 0:
-            logger.info(f"Throttling: waiting {self.request_delay}s before next request")
-            time.sleep(self.request_delay)
+        wait = delay if delay is not None else self.request_delay
+        if wait > 0:
+            logger.info(f"Throttling: waiting {wait}s")
+            time.sleep(wait)
 
     def _request(
         self,
@@ -286,6 +295,7 @@ class CheckmarxService:
         endpoint: str,
         params: dict | None = None,
         json_data: dict | None = None,
+        delay: float | None = None,
     ) -> dict | list:
         """Make authenticated request to Checkmarx One API."""
         # Ensure we're authenticated
@@ -293,7 +303,7 @@ class CheckmarxService:
             self._authenticate()
 
         # Wait before making request
-        self._throttle()
+        self._throttle(delay)
 
         headers = {
             'Authorization': f'Bearer {self._access_token}',
@@ -316,13 +326,13 @@ class CheckmarxService:
 
         return response.json()
 
-    def _get(self, endpoint: str, params: dict | None = None) -> dict | list:
+    def _get(self, endpoint: str, params: dict | None = None, delay: float | None = None) -> dict | list:
         """Make authenticated GET request."""
-        return self._request('GET', endpoint, params=params)
+        return self._request('GET', endpoint, params=params, delay=delay)
 
-    def _post(self, endpoint: str, json_data: dict | None = None) -> dict | list:
+    def _post(self, endpoint: str, json_data: dict | None = None, delay: float | None = None) -> dict | list:
         """Make authenticated POST request."""
-        return self._request('POST', endpoint, json_data=json_data)
+        return self._request('POST', endpoint, json_data=json_data, delay=delay)
 
     def get_projects(self) -> Iterator[CheckmarxProject]:
         """Fetch all projects from Checkmarx One with pagination."""
@@ -442,14 +452,14 @@ class CheckmarxService:
             logger.info(f"Using cached SBOM for scan {scan_id}")
             return output_path
 
-        # Request SBOM export via Export Service API
+        # Request SBOM export via Export Service API (use export_delay for this expensive operation)
         export_response = self._post('api/sca/export/requests', {
             'ScanId': scan_id,
             'FileFormat': 'CycloneDxJson',
             'ExportParameters': {
                 'hideDevAndTestDependencies': hide_dev_dependencies,
             },
-        })
+        }, delay=self.export_delay)
         export_id = export_response['exportId']
         logger.info(f"SBOM export requested, exportId: {export_id}")
 
@@ -464,8 +474,8 @@ class CheckmarxService:
                 if not file_url:
                     raise ValueError("Export completed but no fileUrl provided")
 
-                # Download the SBOM file
-                self._throttle()
+                # Download the SBOM file (use export_delay)
+                self._throttle(self.export_delay)
                 logger.info(f"Downloading SBOM from {file_url}")
                 download_response = httpx.get(file_url, timeout=60.0)
                 download_response.raise_for_status()
