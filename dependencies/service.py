@@ -193,6 +193,7 @@ class CheckmarxService:
     def __init__(
         self,
         base_url: str | None = None,
+        iam_url: str | None = None,
         tenant: str | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
@@ -206,10 +207,13 @@ class CheckmarxService:
         self._client: httpx.Client | None = None
         self._access_token: str | None = None
 
-        # Derive IAM URL from base URL
-        # e.g., https://ast.checkmarx.net -> https://iam.checkmarx.net
-        # e.g., https://eu.ast.checkmarx.net -> https://eu.iam.checkmarx.net
-        if self.base_url:
+        # Use explicit IAM URL or derive from base URL
+        if iam_url:
+            self._iam_url = iam_url.rstrip('/')
+        elif os.environ.get('CHECKMARX_IAM_URL'):
+            self._iam_url = os.environ.get('CHECKMARX_IAM_URL', '').rstrip('/')
+        elif self.base_url:
+            # Derive: https://ast.checkmarx.net -> https://iam.checkmarx.net
             self._iam_url = self.base_url.replace('.ast.', '.iam.').replace('://ast.', '://iam.')
         else:
             self._iam_url = ''

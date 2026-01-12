@@ -17,6 +17,11 @@ class Command(BaseCommand):
             help='Checkmarx One base URL (default: CHECKMARX_BASE_URL env var)',
         )
         parser.add_argument(
+            '--iam-url',
+            type=str,
+            help='Checkmarx One IAM URL (default: derived from base URL or CHECKMARX_IAM_URL env var)',
+        )
+        parser.add_argument(
             '--tenant',
             type=str,
             help='Checkmarx tenant identifier (default: CHECKMARX_TENANT env var)',
@@ -71,6 +76,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         base_url = options.get('base_url')
+        iam_url = options.get('iam_url')
         tenant = options.get('tenant')
         client_id = options.get('client_id')
         client_secret = options.get('client_secret')
@@ -84,6 +90,7 @@ class Command(BaseCommand):
 
         service = CheckmarxService(
             base_url=base_url,
+            iam_url=iam_url,
             tenant=tenant,
             client_id=client_id,
             client_secret=client_secret,
