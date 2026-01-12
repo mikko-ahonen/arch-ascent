@@ -1,0 +1,353 @@
+<div id="vision-canvas-container" class="vision-canvas position-relative h-100">
+    <div id="vision-cy" style="height: 100%; width: 100%; background: #0f0f23; border-radius: 4px;"></div>
+    <div id="vision-cy-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 1000;"></div>
+    <div id="vision-cy-status" class="position-absolute top-0 end-0 m-2" style="z-index: 1000;"></div>
+</div>
+
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script>
+(function() {
+    const visionGraphData = {{ graph_data|safe }};
+    const visionHasPositions = {{ has_positions|yesno:"true,false" }};
+    const visionId = {{ vision.id|default:"null" }};
+
+    if (visionGraphData.nodes.length === 0) {
+        // Show placeholder for empty vision
+        document.getElementById('vision-cy').innerHTML = `
+            <div class="d-flex align-items-center justify-content-center h-100 text-muted">
+                <div class="text-center">
+                    <i class="bi bi-diagram-3 display-4"></i>
+                    <p class="mt-3">Vision canvas will display layers and component relationships</p>
+                    <p class="small">Add layers and groups to populate the canvas</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    const layoutConfig = visionHasPositions
+        ? { name: 'preset', padding: 30 }
+        : {
+            name: 'cose',
+            animate: false,
+            refresh: 0,
+            fit: true,
+            nodeRepulsion: 8000,
+            idealEdgeLength: 100,
+            padding: 30,
+            randomize: false,
+        };
+
+    const visionCy = cytoscape({
+        container: document.getElementById('vision-cy'),
+        elements: [...visionGraphData.nodes, ...visionGraphData.edges],
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'background-color': '#0d6efd',
+                    'label': 'data(label)',
+                    'color': '#e4e4e4',
+                    'text-valign': 'bottom',
+                    'text-margin-y': 5,
+                    'font-size': '12px',
+                    'width': 40,
+                    'height': 40,
+                    'z-index': 10,
+                }
+            },
+            {
+                selector: 'node:selected',
+                style: {
+                    'background-color': '#dc3545',
+                    'border-width': 3,
+                    'border-color': '#fff',
+                }
+            },
+            {
+                selector: 'node:grabbed',
+                style: {
+                    'background-color': '#198754',
+                }
+            },
+            {
+                selector: 'node[?isLayer]',
+                style: {
+                    'background-color': 'data(color)',
+                    'background-opacity': 0.3,
+                    'border-width': 2,
+                    'border-color': 'data(color)',
+                    'label': 'data(label)',
+                    'text-valign': 'top',
+                    'text-margin-y': -10,
+                    'font-weight': 'bold',
+                    'font-size': '14px',
+                    'z-index': 1,
+                }
+            },
+            {
+                selector: 'node[?isGroup]',
+                style: {
+                    'background-color': 'data(color)',
+                    'background-opacity': 0.5,
+                    'border-width': 1,
+                    'border-color': '#6c757d',
+                    'label': 'data(label)',
+                    'text-valign': 'top',
+                    'text-margin-y': -5,
+                    'z-index': 5,
+                }
+            },
+            {
+                selector: ':parent',
+                style: {
+                    'z-index': 5,
+                }
+            },
+            {
+                selector: ':parent:selected',
+                style: {
+                    'background-opacity': 0.8,
+                    'border-width': 4,
+                    'border-color': '#0d6efd',
+                    'border-style': 'solid',
+                }
+            },
+            {
+                selector: 'node[?isLayer]:selected',
+                style: {
+                    'border-width': 4,
+                    'border-color': '#dc3545',
+                    'background-opacity': 0.6,
+                }
+            },
+            {
+                selector: 'node[?isGroup]:selected',
+                style: {
+                    'border-width': 3,
+                    'border-color': '#dc3545',
+                    'background-opacity': 0.7,
+                }
+            },
+            {
+                selector: 'node[!inGroup]',
+                style: {
+                    'background-color': '#6c757d',
+                    'border-width': 2,
+                    'border-style': 'dashed',
+                    'border-color': '#adb5bd',
+                    'opacity': 0.7,
+                }
+            },
+            {
+                selector: 'node[!inGroup]:selected',
+                style: {
+                    'background-color': '#dc3545',
+                    'border-width': 3,
+                    'border-color': '#fff',
+                    'border-style': 'solid',
+                    'opacity': 1,
+                }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 2,
+                    'line-color': '#6c757d',
+                    'target-arrow-color': '#6c757d',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier',
+                    'events': 'no',
+                    'z-index': 0,
+                }
+            },
+            {
+                selector: 'edge:selected',
+                style: {
+                    'line-color': '#dc3545',
+                    'target-arrow-color': '#dc3545',
+                    'width': 3,
+                }
+            },
+        ],
+        layout: layoutConfig,
+        minZoom: 0.2,
+        maxZoom: 3,
+        boxSelectionEnabled: true,
+        selectionType: 'additive',
+        autounselectify: false,
+        autoungrabify: false,
+    });
+
+    // Store reference globally
+    window.visionCy = visionCy;
+    window.visionId = visionId;
+    window.visionLabelsVisible = true;
+    window.visionGroupCounter = 1;
+
+    // Tooltip element
+    const tooltip = document.getElementById('vision-cy-tooltip');
+    const cyContainer = document.getElementById('vision-cy');
+
+    // Event handlers for tooltip
+    visionCy.on('mouseover', 'node', function(e) {
+        const node = e.target;
+        // Show tooltip when labels are hidden
+        if (!window.visionLabelsVisible) {
+            tooltip.textContent = node.data('label');
+            tooltip.style.display = 'block';
+        }
+    });
+
+    visionCy.on('mousemove', 'node', function(e) {
+        if (!window.visionLabelsVisible) {
+            const pos = e.renderedPosition;
+            tooltip.style.left = (pos.x + 15) + 'px';
+            tooltip.style.top = (pos.y - 10) + 'px';
+        }
+    });
+
+    visionCy.on('mouseout', 'node', function(e) {
+        tooltip.style.display = 'none';
+    });
+
+    visionCy.on('grab', 'node', function(e) {
+        tooltip.style.display = 'none';
+    });
+})();
+
+function visionCanvasFit() {
+    if (window.visionCy) {
+        window.visionCy.fit(30);
+    }
+}
+
+function visionCanvasZoomIn() {
+    if (window.visionCy) {
+        window.visionCy.zoom(window.visionCy.zoom() * 1.2);
+    }
+}
+
+function visionCanvasZoomOut() {
+    if (window.visionCy) {
+        window.visionCy.zoom(window.visionCy.zoom() / 1.2);
+    }
+}
+
+function visionCanvasSave(layerId) {
+    if (!window.visionCy || !window.visionId) return;
+
+    const nodes = [];
+    const groups = [];
+
+    window.visionCy.nodes().forEach(node => {
+        const pos = node.position();
+        const data = {
+            id: node.id(),
+            label: node.data('label'),
+            x: pos.x,
+            y: pos.y,
+            parent: node.data('parent') || null,
+        };
+
+        if (node.data('isLayer') || node.data('isGroup')) {
+            groups.push(data);
+        } else {
+            nodes.push(data);
+        }
+    });
+
+    fetch(`/vision/htmx/canvas/${window.visionId}/save/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes, groups, layerId }),
+    })
+    .then(response => response.text())
+    .then(html => {
+        document.getElementById('vision-cy-status').innerHTML = html;
+        setTimeout(() => {
+            document.getElementById('vision-cy-status').innerHTML = '';
+        }, 3000);
+    })
+    .catch(err => {
+        document.getElementById('vision-cy-status').innerHTML =
+            '<div class="alert alert-danger">Save failed: ' + err + '</div>';
+    });
+}
+
+function visionCanvasToggleLabels() {
+    if (window.visionCy) {
+        window.visionLabelsVisible = !window.visionLabelsVisible;
+        const btn = document.getElementById('vision-toggle-labels-btn');
+        if (window.visionLabelsVisible) {
+            window.visionCy.style().selector('node').style('label', 'data(label)').update();
+            if (btn) btn.classList.add('active');
+        } else {
+            window.visionCy.style().selector('node').style('label', '').update();
+            if (btn) btn.classList.remove('active');
+        }
+    }
+}
+
+function visionCanvasRelayout() {
+    if (window.visionCy) {
+        window.visionCy.layout({
+            name: 'cose',
+            animate: false,
+            refresh: 0,
+            fit: true,
+            nodeRepulsion: 8000,
+            idealEdgeLength: 100,
+            padding: 30,
+            randomize: false,
+        }).run();
+    }
+}
+
+function visionCanvasGroupSelected() {
+    if (!window.visionCy) return;
+
+    const selected = window.visionCy.nodes(':selected').filter(node => !node.isParent());
+    if (selected.length < 2) {
+        alert('Select at least 2 nodes to group');
+        return;
+    }
+
+    const groupName = prompt('Enter group name:', 'Group ' + window.visionGroupCounter);
+    if (!groupName) return;
+
+    const groupId = 'new-group-' + window.visionGroupCounter++;
+
+    // Add parent node
+    window.visionCy.add({
+        group: 'nodes',
+        data: { id: groupId, label: groupName, isGroup: true, color: '#495057' }
+    });
+
+    // Move selected nodes into the group
+    selected.forEach(node => {
+        node.move({ parent: groupId });
+    });
+
+    // Deselect and select the new group
+    selected.unselect();
+    window.visionCy.getElementById(groupId).select();
+}
+
+function visionCanvasUngroupSelected() {
+    if (!window.visionCy) return;
+
+    const selectedParents = window.visionCy.nodes(':selected').filter(node => node.isParent());
+    if (selectedParents.length === 0) {
+        alert('Select a group to ungroup');
+        return;
+    }
+
+    selectedParents.forEach(parent => {
+        // Move children out of the group
+        parent.children().move({ parent: null });
+        // Remove the parent node
+        parent.remove();
+    });
+}
+</script>

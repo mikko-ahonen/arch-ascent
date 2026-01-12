@@ -1,0 +1,13 @@
+{% if results %}
+<ul class="list-group">
+    {% for item in results %}
+    <li class="list-group-item">
+        <i class="bi bi-check-circle text-success me-2"></i>{{ item }}
+    </li>
+    {% endfor %}
+</ul>
+{% elif query %}
+<p class="text-muted small mb-0">No results found for "{{ query }}"</p>
+{% else %}
+<p class="text-muted small mb-0">Start typing to search...</p>
+{% endif %}

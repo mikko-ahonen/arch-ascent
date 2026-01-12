@@ -1,0 +1,601 @@
+{% extends "base.html" %}
+{% load component_tags %}
+
+{% block title %}{{ vision.name }} - Arch Ascent{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="{% url 'vision:home' %}" class="text-decoration-none">Visions</a></li>
+        <li class="breadcrumb-item active" aria-current="page">{{ vision.name }}</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <!-- Left Panel: Layers & Groups -->
+    <div class="col-md-2">
+        <div class="card bg-dark mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-layers me-2"></i>Layers</h6>
+                <button
+                    class="btn btn-sm btn-outline-primary"
+                    hx-get="{% url 'vision:layer-form' %}?vision_id={{ vision.id }}"
+                    hx-target="#dialog"
+                >
+                    <i class="bi bi-plus"></i>
+                </button>
+            </div>
+            <div class="card-body p-0" id="layers-list">
+                {% if vision.layers.count > 0 %}
+                    <ul class="list-group list-group-flush">
+                        {% for layer in vision.layers.all %}
+                            <li class="list-group-item bg-dark d-flex justify-content-between align-items-center">
+                                <div class="form-check">
+                                    <input
+                                        class="form-check-input layer-select"
+                                        type="radio"
+                                        name="selected-layer"
+                                        id="layer-{{ layer.id }}"
+                                        data-layer-id="{{ layer.id }}"
+                                        {% if forloop.first %}checked{% endif %}
+                                        onchange="selectLayer({{ layer.id }})"
+                                    >
+                                    <label class="form-check-label" for="layer-{{ layer.id }}">
+                                        <i class="bi bi-square-fill me-1" style="color: {{ layer.color|default:'#6c757d' }}"></i>
+                                        {{ layer.name }}
+                                    </label>
+                                </div>
+                                <div>
+                                    <span class="badge bg-secondary me-2">{{ layer.groups.count }}</span>
+                                    <button
+                                        class="btn btn-sm btn-link text-primary p-0"
+                                        hx-get="{% url 'vision:layer-form' %}?layer_id={{ layer.id }}"
+                                        hx-target="#dialog"
+                                        title="Edit"
+                                    >
+                                        <i class="bi bi-pencil-fill"></i>
+                                    </button>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="p-3 text-center text-muted">
+                        <i class="bi bi-layers display-6"></i>
+                        <p class="mt-2 mb-0 small">No layers yet</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-dark mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-bookmark me-2"></i>References</h6>
+                <button
+                    class="btn btn-sm btn-outline-primary"
+                    hx-get="{% url 'vision:reference-form' %}?vision_id={{ vision.id }}"
+                    hx-target="#dialog"
+                >
+                    <i class="bi bi-plus"></i>
+                </button>
+            </div>
+            <div class="card-body p-0" id="references-list">
+                {% if vision.references.count > 0 %}
+                    <ul class="list-group list-group-flush">
+                        {% for ref in vision.references.all %}
+                            <li class="list-group-item bg-dark d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-primary">{{ ref.name }}</span>
+                                    <small class="text-muted d-block">{{ ref.get_definition_type_display }}</small>
+                                </div>
+                                <button
+                                    class="btn btn-sm btn-link text-primary p-0"
+                                    hx-get="{% url 'vision:reference-form' %}?reference_id={{ ref.id }}"
+                                    hx-target="#dialog"
+                                    title="Edit"
+                                >
+                                    <i class="bi bi-pencil-fill"></i>
+                                </button>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="p-3 text-center text-muted">
+                        <p class="mb-0 small">No references defined</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-dark">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-chat-quote me-2"></i>Statements</h6>
+                <button
+                    class="btn btn-sm btn-outline-primary"
+                    hx-get="{% url 'vision:statement-form' %}?vision_id={{ vision.id }}"
+                    hx-target="#dialog"
+                >
+                    <i class="bi bi-plus"></i>
+                </button>
+            </div>
+            <div class="card-body p-0" id="statements-list"
+                 hx-get="{% url 'vision:statements-list' %}?vision_id={{ vision.id }}"
+                 hx-trigger="statementsUpdated from:body"
+                 hx-swap="innerHTML">
+                {% if vision.statements.count > 0 %}
+                    <ul class="list-group list-group-flush">
+                        {% for stmt in vision.statements.all %}
+                            <li class="list-group-item bg-dark">
+                                <div class="d-flex align-items-start">
+                                    {% if stmt.is_satisfied is True %}
+                                        <i class="bi bi-check-circle-fill text-success me-2 mt-1"></i>
+                                    {% elif stmt.is_satisfied is False %}
+                                        <i class="bi bi-x-circle-fill text-danger me-2 mt-1"></i>
+                                    {% else %}
+                                        <i class="bi bi-question-circle me-2 mt-1 text-muted"></i>
+                                    {% endif %}
+                                    <div class="flex-grow-1">
+                                        <small>{{ stmt.natural_language }}</small>
+                                        <span class="badge bg-secondary ms-1">{{ stmt.get_statement_type_display }}</span>
+                                    </div>
+                                    <button
+                                        class="btn btn-sm btn-link text-primary p-0 ms-2"
+                                        hx-get="{% url 'vision:statement-form' %}?statement_id={{ stmt.id }}"
+                                        hx-target="#dialog"
+                                        title="Edit"
+                                    >
+                                        <i class="bi bi-pencil-fill"></i>
+                                    </button>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="p-3 text-center text-muted">
+                        <p class="mb-0 small">No statements defined</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel: Canvas/Graph -->
+    <div class="col-md-10">
+        <div class="card bg-dark">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-diagram-3 me-2"></i>Vision Canvas</h6>
+                <div class="d-flex align-items-center">
+                    {# Version tabs #}
+                    <div id="version-tabs">
+                        {% include "vision/components/version_tabs.html" %}
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                    <button id="vision-toggle-labels-btn" class="btn btn-outline-secondary active" onclick="visionCanvasToggleLabels()" title="Toggle Labels">
+                        Labels
+                    </button>
+                    <button id="vision-toggle-transitive-btn" class="btn btn-outline-secondary active" onclick="visionCanvasToggleTransitive()" title="Show/Hide Transitive Edges">
+                        Transitive
+                    </button>
+                    <button id="vision-toggle-cycles-btn" class="btn btn-outline-secondary" onclick="visionCanvasToggleCycles()" title="Highlight Cycles">
+                        Cycles
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasGroupSelected()" title="Group Selected">
+                        Group
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasUngroupSelected()" title="Ungroup Selected">
+                        Ungroup
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasAutoCluster()" title="Auto-cluster nodes by position">
+                        Cluster
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasRelayout()" title="Relayout">
+                        <i class="bi bi-arrow-repeat"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasFit()" title="Fit to Screen">
+                        <i class="bi bi-fullscreen"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasZoomIn()" title="Zoom In">
+                        <i class="bi bi-zoom-in"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="visionCanvasZoomOut()" title="Zoom Out">
+                        <i class="bi bi-zoom-out"></i>
+                    </button>
+                    <button class="btn btn-outline-success" onclick="visionCanvasSave(currentLayerId)" title="Save Layout">
+                        <i class="bi bi-save"></i>
+                    </button>
+                    <button id="vision-expand-btn" class="btn btn-outline-info" onclick="visionCanvasToggleExpand()" title="Expand/Collapse (Esc)">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0" style="position: relative;">
+                <div id="vision-canvas-wrapper" style="height: 500px; transition: height 0.3s ease;">
+                    {% component "vision_canvas" vision=vision version=current_version height="500px" %}{% endcomponent %}
+                </div>
+            </div>
+            <style>
+                #vision-canvas-wrapper #vision-canvas-container,
+                #vision-canvas-wrapper #vision-cy {
+                    height: 100% !important;
+                }
+            </style>
+            <script>
+                // Add styles for transitive edges and cycle highlighting after Cytoscape loads
+                document.addEventListener('DOMContentLoaded', function() {
+                    setTimeout(function() {
+                        if (window.visionCy) {
+                            window.visionCy.style()
+                                .selector('edge[?transitive]')
+                                .style({
+                                    'line-style': 'dashed',
+                                    'line-color': '#adb5bd',
+                                    'target-arrow-color': '#adb5bd',
+                                    'opacity': 0.6,
+                                })
+                                .selector('edge.cycle-highlighted')
+                                .style({
+                                    'line-color': '#dc3545',
+                                    'target-arrow-color': '#dc3545',
+                                    'width': 3,
+                                    'opacity': 1,
+                                    'z-index': 999,
+                                })
+                                .selector('node.cycle-highlighted')
+                                .style({
+                                    'border-width': 3,
+                                    'border-color': '#dc3545',
+                                })
+                                .update();
+                        }
+                    }, 500);
+                });
+            </script>
+        </div>
+    </div>
+</div>
+<!-- Group Name Modal -->
+<div class="modal fade" id="groupNameModal" tabindex="-1" aria-labelledby="groupNameModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content bg-dark">
+            <div class="modal-header">
+                <h5 class="modal-title" id="groupNameModalLabel">Create Group</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="groupNameInput" class="form-label">Group Name</label>
+                    <input type="text" class="form-control" id="groupNameInput" placeholder="Enter group name">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createGroupBtn">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const visionId = {{ vision.id }};
+const currentVersionId = {% if current_version %}{{ current_version.id }}{% else %}null{% endif %};
+const currentVersionData = {% if current_version %}{{ current_version.layout_data|safe }}{% else %}null{% endif %};
+let currentLayerId = null;
+let canvasExpanded = false;
+let visionTransitiveVisible = true;
+let visionCyclesVisible = false;
+
+// Get the initially selected layer
+document.addEventListener('DOMContentLoaded', function() {
+    const selected = document.querySelector('.layer-select:checked');
+    if (selected) {
+        currentLayerId = selected.dataset.layerId;
+    }
+});
+
+// Escape key to collapse canvas and deselect nodes
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        if (canvasExpanded) {
+            visionCanvasToggleExpand();
+        } else if (window.visionCy) {
+            // Deselect all and blur
+            window.visionCy.elements().unselect();
+            document.getElementById('vision-cy')?.blur();
+            document.body.focus();
+        }
+    }
+});
+
+function visionCanvasToggleExpand() {
+    const wrapper = document.getElementById('vision-canvas-wrapper');
+    const btn = document.getElementById('vision-expand-btn');
+    const icon = btn?.querySelector('i');
+
+    canvasExpanded = !canvasExpanded;
+
+    if (canvasExpanded) {
+        wrapper.style.height = 'calc(100vh - 120px)';
+        if (icon) {
+            icon.classList.remove('bi-arrows-fullscreen');
+            icon.classList.add('bi-fullscreen-exit');
+        }
+        btn?.classList.add('active');
+    } else {
+        wrapper.style.height = '500px';
+        if (icon) {
+            icon.classList.remove('bi-fullscreen-exit');
+            icon.classList.add('bi-arrows-fullscreen');
+        }
+        btn?.classList.remove('active');
+    }
+
+    // Resize cytoscape after transition
+    setTimeout(() => {
+        if (window.visionCy) {
+            window.visionCy.resize();
+            window.visionCy.fit(30);
+        }
+    }, 350);
+}
+
+// Toggle transitive edges visibility
+function visionCanvasToggleTransitive() {
+    if (!window.visionCy) return;
+
+    visionTransitiveVisible = !visionTransitiveVisible;
+    const btn = document.getElementById('vision-toggle-transitive-btn');
+    const transitiveEdges = window.visionCy.edges('[?transitive]');
+
+    if (visionTransitiveVisible) {
+        transitiveEdges.show();
+        btn.classList.add('active');
+    } else {
+        transitiveEdges.hide();
+        btn.classList.remove('active');
+    }
+}
+
+// Toggle cycle highlighting
+function visionCanvasToggleCycles() {
+    if (!window.visionCy) return;
+
+    visionCyclesVisible = !visionCyclesVisible;
+    const btn = document.getElementById('vision-toggle-cycles-btn');
+    const cycleEdges = window.visionCy.edges('[?inCycle]');
+
+    if (visionCyclesVisible) {
+        // Highlight cycle edges and their connected nodes
+        cycleEdges.addClass('cycle-highlighted');
+        cycleEdges.forEach(edge => {
+            edge.source().addClass('cycle-highlighted');
+            edge.target().addClass('cycle-highlighted');
+        });
+        btn.classList.add('active');
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-danger');
+    } else {
+        // Remove highlighting
+        cycleEdges.removeClass('cycle-highlighted');
+        window.visionCy.nodes().removeClass('cycle-highlighted');
+        btn.classList.remove('active');
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-outline-secondary');
+    }
+}
+
+// Group creation with modal (overrides the prompt-based version)
+let pendingGroupNodes = null;
+const groupNameModal = new bootstrap.Modal(document.getElementById('groupNameModal'));
+
+function visionCanvasGroupSelected() {
+    if (!window.visionCy) return;
+
+    const selected = window.visionCy.nodes(':selected').filter(node => !node.isParent());
+    if (selected.length < 2) {
+        alert('Select at least 2 nodes to group');
+        return;
+    }
+
+    // Store selected nodes and show modal
+    pendingGroupNodes = selected;
+    document.getElementById('groupNameInput').value = 'Group ' + window.visionGroupCounter;
+    groupNameModal.show();
+
+    // Focus input after modal is shown
+    document.getElementById('groupNameModal').addEventListener('shown.bs.modal', function() {
+        document.getElementById('groupNameInput').select();
+    }, { once: true });
+}
+
+document.getElementById('createGroupBtn').addEventListener('click', function() {
+    const groupName = document.getElementById('groupNameInput').value.trim();
+    if (!groupName || !pendingGroupNodes) {
+        groupNameModal.hide();
+        return;
+    }
+
+    const groupId = 'new-group-' + window.visionGroupCounter++;
+
+    // Add parent node
+    window.visionCy.add({
+        group: 'nodes',
+        data: { id: groupId, label: groupName, isGroup: true, color: '#495057' }
+    });
+
+    // Move selected nodes into the group
+    pendingGroupNodes.forEach(node => {
+        node.move({ parent: groupId });
+    });
+
+    // Deselect and select the new group
+    pendingGroupNodes.unselect();
+    window.visionCy.getElementById(groupId).select();
+
+    pendingGroupNodes = null;
+    groupNameModal.hide();
+});
+
+// Allow Enter key to submit
+document.getElementById('groupNameInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        document.getElementById('createGroupBtn').click();
+    }
+});
+
+// Auto-cluster nodes based on positions
+function visionCanvasAutoCluster() {
+    if (!window.visionCy) return;
+
+    const nodes = [];
+    window.visionCy.nodes().forEach(node => {
+        if (!node.isParent() && !node.data('isLayer') && !node.data('isGroup')) {
+            const pos = node.position();
+            nodes.push({
+                id: node.id(),
+                x: pos.x,
+                y: pos.y,
+                parent: node.data('parent') || null,
+            });
+        }
+    });
+
+    // Ask user for mode
+    const mode = prompt(
+        'Clustering mode:\n' +
+        '- Enter "auto" for automatic threshold (creates ~n/10 clusters)\n' +
+        '- Enter a number for manual distance threshold\n\n' +
+        'Default: auto',
+        'auto'
+    );
+    if (mode === null) return;
+
+    const eps = mode.trim().toLowerCase() === 'auto' ? 'auto' : (parseFloat(mode) || 'auto');
+
+    fetch(`/vision/htmx/canvas/${visionId}/cluster/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            nodes: nodes,
+            eps: eps,
+            min_samples: 2,
+            layer_id: currentLayerId,
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+
+        if (data.clusters && data.clusters.length > 0) {
+            // Add new groups to cytoscape
+            data.clusters.forEach((cluster, idx) => {
+                const groupId = 'auto-group-' + (window.visionGroupCounter++);
+
+                // Add parent node
+                window.visionCy.add({
+                    group: 'nodes',
+                    data: {
+                        id: groupId,
+                        label: cluster.name || ('Cluster ' + (idx + 1)),
+                        isGroup: true,
+                        color: '#495057'
+                    }
+                });
+
+                // Move nodes into the group
+                cluster.nodes.forEach(nodeId => {
+                    const node = window.visionCy.getElementById(nodeId);
+                    if (node.length > 0) {
+                        node.move({ parent: groupId });
+                    }
+                });
+            });
+
+            // Relayout after clustering
+            window.visionCy.layout({
+                name: 'cose',
+                animate: false,
+                fit: true,
+                nodeRepulsion: 8000,
+                idealEdgeLength: 100,
+                padding: 30,
+            }).run();
+
+            alert(`Created ${data.clusters.length} cluster(s)`);
+        } else {
+            alert('No clusters found. Try adjusting the distance threshold.');
+        }
+    })
+    .catch(err => {
+        console.error('Clustering failed:', err);
+        alert('Clustering failed: ' + err);
+    });
+}
+
+function selectLayer(layerId) {
+    currentLayerId = layerId;
+
+    // Fetch new graph data for the selected layer
+    let url = `/vision/htmx/canvas/${visionId}/data/?layers=${layerId}`;
+    if (currentVersionId) {
+        url += `&version_id=${currentVersionId}`;
+    }
+
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (window.visionCy) {
+                // Clear existing elements
+                window.visionCy.elements().remove();
+
+                if (data.nodes.length === 0) {
+                    // Show placeholder when no data
+                    const container = document.getElementById('vision-cy');
+                    container.innerHTML = `
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">
+                            <div class="text-center">
+                                <i class="bi bi-diagram-3 display-4"></i>
+                                <p class="mt-3">No components in this layer</p>
+                                <p class="small">Add groups and components to populate the canvas</p>
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Add new elements
+                window.visionCy.add([...data.nodes, ...data.edges]);
+
+                // Run layout
+                if (data.has_positions) {
+                    window.visionCy.layout({
+                        name: 'preset',
+                        padding: 30,
+                    }).run();
+                } else {
+                    window.visionCy.layout({
+                        name: 'cose',
+                        animate: false,
+                        refresh: 0,
+                        fit: true,
+                        nodeRepulsion: 8000,
+                        idealEdgeLength: 100,
+                        padding: 30,
+                        randomize: false,
+                    }).run();
+                }
+
+                window.visionCy.fit(30);
+            }
+        })
+        .catch(err => {
+            console.error('Failed to load layer:', err);
+        });
+}
+</script>
+{% endblock %}

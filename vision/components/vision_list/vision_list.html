@@ -1,0 +1,12 @@
+{% load component_tags %}
+
+<div id="vision-list" class="vision-list">
+  {% for vision in visions %}
+    {% component "vision_card" vision=vision %}{% endcomponent %}
+  {% empty %}
+    <div class="text-center py-5">
+      <i class="bi bi-eye-slash display-4 text-muted"></i>
+      <p class="text-muted mt-3">No visions yet. Create one to get started!</p>
+    </div>
+  {% endfor %}
+</div>

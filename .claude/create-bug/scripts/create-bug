@@ -1,0 +1,78 @@
+#!/bin/bash
+
+usage() {
+    echo "Usage: $0 --title=<title> [--prio-high] [--prio-medium] [--prio-high]  --body-file=<file>" >&2
+    echo "" >&2
+    echo "Where:" >&2
+    echo "  title     sets title for the bug" >&2
+    echo "  body-file contains the file name for body of the bug" >&2
+    echo "" >&2
+    echo "Only one of --prio-high, --prio-medium or --prio-low can be set"
+    exit 1
+}
+
+PRIO_COUNT=0
+PRIO=""
+
+for i in "$@"; do
+  case $i in
+    --title=*)
+      TITLE="${i#*=}"
+      ;;
+    --body-file=*)
+      BODY_FILE="${i#*=}"
+      ;;
+    --prio-high)
+      PRIO=",prio_high"
+      ((PRIO_COUNT++))
+      ;;
+    --prio-medium)
+      PRIO=",prio_medium"
+      ((PRIO_COUNT++))
+      ;;
+    --prio-low)
+      PRIO=",prio_low"
+      ((PRIO_COUNT++))
+      ;;
+    -*|--*)
+      echo "Unknown option $i" >&2
+      usage
+      ;;
+    *)
+      ;;
+  esac
+done
+
+if [[ $PRIO_COUNT -gt 1 ]]; then
+  echo "Error: Only one --prio-high, --prio-medium, or --prio-low can be specified" >&2
+  usage
+fi
+
+# Check if TITLE is empty
+if [ -z "${TITLE}" ]; then
+    echo "Error: --title is required" >&2
+    usage
+fi
+
+# Check if BODY_FILE is provided
+if [ -z "${BODY_FILE}" ]; then
+    echo "Error: --body-file is required" >&2
+    usage
+fi
+
+# Check if BODY_FILE exists
+if [ ! -f "${BODY_FILE}" ]; then
+    echo "Error: Body file '${BODY_FILE}' does not exist" >&2
+    exit 1
+fi
+
+# Check if BODY_FILE is readable
+if [ ! -r "${BODY_FILE}" ]; then
+    echo "Error: Body file '${BODY_FILE}' is not readable" >&2
+    exit 1
+fi
+
+echo "TITLE      = ${TITLE}"
+echo "BODY_FILE  = ${BODY_FILE}"
+
+TERM=dumb gh issue create -a "@me" --title "${TITLE}" --body-file "${BODY_FILE}" -l bug${PRIO}

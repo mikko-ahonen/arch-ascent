@@ -1,0 +1,80 @@
+{% load component_tags %}
+<div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title">
+      {% if statement %}Edit Statement{% else %}New Statement{% endif %}
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  </div>
+  <form hx-post="{% url 'vision:statement-form' %}" hx-target="#dialog" hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+      {% if statement %}
+        <input type="hidden" name="statement_id" value="{{ statement.id }}">
+      {% endif %}
+      <input type="hidden" name="vision_id" value="{{ vision.id }}">
+
+      <div class="mb-3">
+        <label for="statement-description" class="form-label">Description <span class="text-muted">(optional)</span></label>
+        <textarea class="form-control" id="statement-description" name="description" rows="2"
+                  placeholder="Why is this statement important?">{{ statement.description|default:"" }}</textarea>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Statement</label>
+        <p class="text-muted small mb-2">
+          Write your architectural intent statement. Select text and tag it with references to make it evaluable.
+        </p>
+        <div class="form-text mb-2">
+          <strong>Patterns:</strong>
+          "there must/should be $$$ref$$$" |
+          "[every] $$$X$$$ must/should be in $$$Y$$$" |
+          "[every] $$$X$$$ must/should not depend on $$$Y$$$" |
+          "there must/should be exactly N $$$ref$$$" |
+          "all components must have an owner on $$$layer$$$" |
+          "$$$layer-A$$$ corresponds with $$$layer-B$$$" (1:1) |
+          "$$$layer-A$$$ refines $$$layer-B$$$" (many:1)
+        </div>
+        {% component "tagged_editor"
+           editor_id="statement-editor"
+           content=statement.natural_language|default:""
+           tags=tags
+           placeholder="e.g., $$$payment-api$$$ must be in $$$domain-layer$$$..."
+           available_tags=references
+           vision_id=vision.id
+        %}{% endcomponent %}
+      </div>
+
+      {% if statement %}
+      <div class="mb-3">
+        <div class="row">
+          <div class="col-6">
+            <label class="form-label text-muted small">Inferred Type</label>
+            <div class="form-control-plaintext">
+              {% if statement.statement_type %}
+                <span class="badge bg-info">{{ statement.get_statement_type_display }}</span>
+              {% else %}
+                <span class="text-muted">Not detected</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label text-muted small">Formalization Status</label>
+            <div class="form-control-plaintext">
+              <span class="badge {% if statement.status == 'formal' %}bg-success{% elif statement.status == 'semi_formal' %}bg-warning{% else %}bg-secondary{% endif %}">
+                {{ statement.get_status_display }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">
+        {% if statement %}Update{% else %}Create{% endif %} Statement
+      </button>
+    </div>
+  </form>
+</div>

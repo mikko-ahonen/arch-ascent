@@ -1,0 +1,7 @@
+{% for item in items %}
+<li class="list-group-item">{{ item }}</li>
+{% endfor %}
+<script>
+    document.getElementById('load-more-btn').setAttribute('hx-get', '{% url "items_load_more" %}?page={{ next_page }}');
+    htmx.process(document.getElementById('load-more-btn'));
+</script>

@@ -1,0 +1,11 @@
+{% if href %}
+<a href="{{ href }}" class="btn btn-{{ variant }}{% if size %} btn-{{ size }}{% endif %}">
+    {% if icon %}<i class="{{ icon }} me-1"></i>{% endif %}
+    {{ slot }}
+</a>
+{% else %}
+<button type="button" class="btn btn-{{ variant }}{% if size %} btn-{{ size }}{% endif %}">
+    {% if icon %}<i class="{{ icon }} me-1"></i>{% endif %}
+    {{ slot }}
+</button>
+{% endif %}

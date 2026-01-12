@@ -1,0 +1,32 @@
+# Django
+Django>=5.0,<6.0
+django-extensions>=3.2.3
+
+# Django Components
+django-components>=0.94
+
+# Tagging
+django-taggit>=5.0.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# Development
+django-debug-toolbar>=4.3.0
+python-dotenv>=1.0.1
+
+# Static files
+whitenoise>=6.6.0
+
+# HTTP client
+httpx>=0.27.0
+requests>=2.31.0
+
+# Testing
+pytest>=7.4.0
+pytest-django>=4.5.0
+pytest-cov>=4.1.0
+playwright>=1.40.0
+
+# Parsing
+pyparsing>=3.1.0

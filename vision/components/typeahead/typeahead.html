@@ -1,0 +1,118 @@
+{% load component_tags %}
+<div
+  x-data="{
+      open: false,
+      search: '',
+      highlighted_index: -1,
+      setSelected(elem) {
+        const item = {
+            'id': elem.getAttribute('data-item-id'),
+            'name': elem.getAttribute('data-item-name'),
+            'type': elem.getAttribute('data-item-type'),
+        };
+        this.{{ x_model }} = item;
+        this.clear(true);
+      },
+      clear(emptySearch) {
+        this.open = false;
+        if (emptySearch) {
+            this.search = '';
+        }
+        this.highlighted_index = -1;
+      },
+      highlightNext() {
+        const results = this.$refs.typeahead_results;
+        if (results && this.highlighted_index < results.children.length - 1) {
+          this.highlighted_index++;
+          this.scrollIntoView();
+        }
+      },
+      highlightPrevious() {
+        if (this.highlighted_index > 0) {
+          this.highlighted_index--;
+          this.scrollIntoView();
+        }
+      },
+      closeResults() {
+          this.clear(false);
+      },
+      openResults() {
+          this.open = true;
+          this.highlighted_index = 0;
+      },
+      scrollIntoView() {
+        const results = this.$refs.typeahead_results;
+        if (results && results.children[this.highlighted_index]) {
+            results.children[this.highlighted_index].scrollIntoView({
+              block: 'nearest',
+              behavior: 'smooth'
+            });
+        }
+      },
+      keyboardSelect(event) {
+        event.stopPropagation();
+        event.preventDefault();
+        if (this.highlighted_index > -1) {
+            const results = this.$refs.typeahead_results;
+            if (results && results.children[this.highlighted_index]) {
+                this.setSelected(results.children[this.highlighted_index]);
+            }
+        } else if (this.search && this.search.trim()) {
+            // Create new tag
+            this.{{ x_model }} = { id: null, name: this.search.trim(), type: 'tag' };
+            this.clear(true);
+        }
+      },
+      mouseSelect(index) {
+        const results = this.$refs.typeahead_results;
+        if (results && results.children[index]) {
+            this.highlighted_index = index;
+            this.setSelected(results.children[index]);
+        }
+      },
+      showResults() {
+        const results = this.$refs.typeahead_results;
+        if (results && results.children.length > 0) {
+            this.openResults();
+        } else {
+            this.closeResults();
+        }
+      }
+  }"
+  class="typeahead position-relative"
+  >
+    <div class="typeahead-container">
+      <div class="input-group">
+        <input
+          x-ref="searchInput"
+          class="form-control form-control-sm"
+          hx-post="{% url 'vision:typeahead-search' %}"
+          hx-trigger="keyup changed delay:300ms, focus"
+          hx-target="next .typeahead-results-container"
+          hx-swap="innerHTML"
+          hx-vals='{"target": "{{ target }}"}'
+          type="search"
+          name="q"
+          x-model="search"
+          @keydown.enter="keyboardSelect($event)"
+          @keydown.arrow-down.stop.prevent="highlightNext()"
+          @keydown.escape.stop.prevent="closeResults()"
+          @keydown.arrow-up.stop.prevent="highlightPrevious()"
+          autocomplete="off"
+          placeholder="{{ placeholder }}"/>
+        <button
+          class="btn btn-outline-primary btn-sm"
+          type="button"
+          @click="if(search.trim()) { {{ x_model }} = { id: null, name: search.trim(), type: 'tag' }; clear(true); }"
+          :disabled="!search || !search.trim()"
+        >+</button>
+      </div>
+      <div
+        class="typeahead-results-container position-absolute w-100"
+        style="z-index: 1050;"
+        x-show="open"
+        @htmx:after-settle="showResults()"
+        @click.away="closeResults()">
+      </div>
+    </div>
+</div>

@@ -1,0 +1,70 @@
+<div class="tagged-editor-container" id="{{ editor_id }}-container" data-editor-id="{{ editor_id }}">
+    <!-- Toolbar (hidden when using popup mode) -->
+    {% if available_tags and not vision_id %}
+    <div class="tagged-editor-toolbar">
+        <div class="btn-group btn-group-sm me-2">
+            {% for tag in available_tags %}
+            <button
+                type="button"
+                class="btn btn-outline-secondary tag-btn"
+                data-tag="{{ tag.name }}"
+                data-color="{{ tag.color }}"
+                title="{{ tag.description }}"
+                onclick="taggedEditorApplyTag('{{ editor_id }}', '{{ tag.name }}', '{{ tag.color }}')"
+            >
+                <span class="tag-color-dot" style="background-color: {{ tag.color }}"></span>
+                {{ tag.name }}
+            </button>
+            {% endfor %}
+        </div>
+        <button
+            type="button"
+            class="btn btn-outline-danger btn-sm"
+            onclick="taggedEditorRemoveTag('{{ editor_id }}')"
+            title="Remove tag from selection"
+        >
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+    {% endif %}
+
+    <!-- Editor area -->
+    <div class="tagged-editor-wrapper">
+        <!-- The editable text layer -->
+        <div
+            class="tagged-editor-content"
+            id="{{ editor_id }}-content"
+            contenteditable="{{ readonly|yesno:'false,true' }}"
+            data-placeholder="{{ placeholder }}"
+            spellcheck="false"
+        >{{ content }}</div>
+
+        <!-- Tag annotations overlay (rendered by JS) -->
+        <div class="tagged-editor-annotations" id="{{ editor_id }}-annotations"></div>
+    </div>
+
+    <!-- Hidden input to store serialized data -->
+    <input type="hidden" id="{{ editor_id }}-data" name="{{ editor_id }}" value="">
+</div>
+
+<script>
+(function() {
+    // Initialize this editor instance
+    const editorId = '{{ editor_id }}';
+    const initialTags = {{ tags|safe }};
+    const availableTags = {{ available_tags_json|safe }};
+    const visionId = {{ vision_id|default:"null" }};
+
+    const options = {
+        availableTags: availableTags,
+        visionId: visionId,
+    };
+
+    // Initialize - JS is loaded globally in base.html
+    if (typeof initTaggedEditor === 'function') {
+        initTaggedEditor(editorId, initialTags, options);
+    } else {
+        console.error('initTaggedEditor not available - ensure tagged_editor.js is loaded');
+    }
+})();
+</script>

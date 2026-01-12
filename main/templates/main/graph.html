@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Dependency Graph{% endblock %}
+
+{% block content %}
+{% component "dependency_graph" height="650px" %}{% endcomponent %}
+
+<div class="mt-4">
+    {% component "refactoring_backlog" %}{% endcomponent %}
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>Controls</h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li><i class="bi bi-mouse me-2"></i><strong>Drag</strong> - Move nodes around</li>
+                    <li><i class="bi bi-zoom-in me-2"></i><strong>Scroll</strong> - Zoom in/out</li>
+                    <li><i class="bi bi-hand-index me-2"></i><strong>Click</strong> - Select node/edge</li>
+                    <li><i class="bi bi-arrows-move me-2"></i><strong>Pan</strong> - Click and drag background</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-palette me-2"></i>Legend</h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li><span class="badge bg-primary me-2">&nbsp;&nbsp;&nbsp;</span> Project node</li>
+                    <li><span class="badge bg-danger me-2">&nbsp;&nbsp;&nbsp;</span> Selected node</li>
+                    <li><span class="badge bg-success me-2">&nbsp;&nbsp;&nbsp;</span> Dragging node</li>
+                    <li><span class="badge bg-secondary me-2">&nbsp;&nbsp;&nbsp;</span> Group (parent)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

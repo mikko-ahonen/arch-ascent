@@ -1,0 +1,33 @@
+{% if vision.statements.count > 0 %}
+    <ul class="list-group list-group-flush">
+        {% for stmt in vision.statements.all %}
+            <li class="list-group-item bg-dark">
+                <div class="d-flex align-items-start">
+                    {% if stmt.is_satisfied is True %}
+                        <i class="bi bi-check-circle-fill text-success me-2 mt-1"></i>
+                    {% elif stmt.is_satisfied is False %}
+                        <i class="bi bi-x-circle-fill text-danger me-2 mt-1"></i>
+                    {% else %}
+                        <i class="bi bi-question-circle me-2 mt-1 text-muted"></i>
+                    {% endif %}
+                    <div class="flex-grow-1">
+                        <small>{{ stmt.natural_language }}</small>
+                        <span class="badge bg-secondary ms-1">{{ stmt.get_statement_type_display }}</span>
+                    </div>
+                    <button
+                        class="btn btn-sm btn-link text-primary p-0 ms-2"
+                        hx-get="{% url 'vision:statement-form' %}?statement_id={{ stmt.id }}"
+                        hx-target="#dialog"
+                        title="Edit"
+                    >
+                        <i class="bi bi-pencil-fill"></i>
+                    </button>
+                </div>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <div class="p-3 text-center text-muted">
+        <p class="mb-0 small">No statements defined</p>
+    </div>
+{% endif %}

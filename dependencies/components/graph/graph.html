@@ -1,0 +1,515 @@
+<div id="graph-container" class="card">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Project Dependencies</h5>
+            <div class="btn-group btn-group-sm">
+            <button id="toggle-labels-btn" class="btn btn-outline-secondary active" onclick="graphToggleLabels()">Labels</button>
+            <button id="toggle-transitive-btn" class="btn btn-outline-secondary active" onclick="graphToggleTransitive()">Transitive</button>
+            <button id="toggle-cycles-btn" class="btn btn-outline-secondary" onclick="graphToggleCycles()">Cycles</button>
+            <button class="btn btn-outline-secondary" onclick="graphGroupSelected()">Group</button>
+            <button class="btn btn-outline-secondary" onclick="graphUngroupSelected()">Ungroup</button>
+            <button class="btn btn-outline-secondary" onclick="graphAutoCluster()">Cluster</button>
+            <button class="btn btn-outline-secondary" onclick="graphFitToScreen()">Fit</button>
+            <button class="btn btn-outline-secondary" onclick="graphRelayout()">Relayout</button>
+            <button class="btn btn-outline-success" onclick="graphSaveLayout()">Save</button>
+            <button class="btn btn-outline-primary" hx-get="/htmx/graph/" hx-target="#graph-container" hx-swap="outerHTML">Refresh</button>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <div class="input-group input-group-sm flex-grow-1">
+                <input type="text" id="graph-filter-input" class="form-control" placeholder="Filter: foo, bar:*, *:baz:*" onkeydown="if(event.key==='Enter') graphApplyFilter()">
+                <button class="btn btn-outline-secondary" onclick="graphApplyFilter()" title="Apply filter">Filter</button>
+                <button class="btn btn-outline-secondary" onclick="graphClearFilter()" title="Clear filter">Clear</button>
+            </div>
+            <span id="graph-filter-status" class="text-muted small"></span>
+        </div>
+    </div>
+    <div class="card-body p-0 position-relative">
+        <div id="cy" style="height: {{ height }}; width: 100%;"></div>
+        <div id="cy-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 1000;"></div>
+        <div id="cy-status" class="position-absolute top-0 end-0 m-2" style="z-index: 1000;"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script>
+(function() {
+    const graphData = {{ graph_data|safe }};
+    const hasPositions = {{ has_positions|yesno:"true,false" }};
+
+    const layoutConfig = hasPositions
+        ? { name: 'preset', padding: 30 }
+        : {
+            name: 'cose',
+            animate: true,
+            animationDuration: 500,
+            nodeRepulsion: 8000,
+            idealEdgeLength: 100,
+            padding: 30,
+        };
+
+    const cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements: [...graphData.nodes, ...graphData.edges],
+        style: [
+            {
+                selector: 'node',
+                style: {
+                    'background-color': '#0d6efd',
+                    'label': 'data(label)',
+                    'color': '#333',
+                    'text-valign': 'bottom',
+                    'text-margin-y': 5,
+                    'font-size': '12px',
+                    'width': 40,
+                    'height': 40,
+                }
+            },
+            {
+                selector: 'node:selected',
+                style: {
+                    'background-color': '#dc3545',
+                    'border-width': 3,
+                    'border-color': '#333',
+                }
+            },
+            {
+                selector: 'node:grabbed',
+                style: {
+                    'background-color': '#198754',
+                }
+            },
+            {
+                selector: ':parent',
+                style: {
+                    'background-color': '#e9ecef',
+                    'background-opacity': 0.5,
+                    'border-width': 2,
+                    'border-color': '#6c757d',
+                    'label': 'data(label)',
+                    'text-valign': 'top',
+                    'text-margin-y': -10,
+                    'font-weight': 'bold',
+                }
+            },
+            {
+                selector: ':parent:selected',
+                style: {
+                    'background-color': '#cfe2ff',
+                    'background-opacity': 0.8,
+                    'border-width': 4,
+                    'border-color': '#0d6efd',
+                    'border-style': 'solid',
+                    'shadow-blur': 15,
+                    'shadow-color': '#0d6efd',
+                    'shadow-opacity': 0.6,
+                    'shadow-offset-x': 0,
+                    'shadow-offset-y': 0,
+                }
+            },
+            {
+                selector: 'edge',
+                style: {
+                    'width': 2,
+                    'line-color': '#6c757d',
+                    'target-arrow-color': '#6c757d',
+                    'target-arrow-shape': 'triangle',
+                    'curve-style': 'bezier',
+                    'events': 'no',  // Edges don't capture pointer events
+                    'z-index': 0,
+                }
+            },
+            {
+                selector: 'edge:selected',
+                style: {
+                    'line-color': '#dc3545',
+                    'target-arrow-color': '#dc3545',
+                    'width': 3,
+                }
+            },
+            {
+                selector: 'node',
+                style: {
+                    'z-index': 10,  // Nodes above edges
+                }
+            },
+            {
+                selector: ':parent',
+                style: {
+                    'z-index': 5,  // Groups between edges and nodes
+                }
+            },
+            {
+                selector: 'edge[?transitive]',
+                style: {
+                    'line-style': 'dashed',
+                    'line-color': '#adb5bd',
+                    'target-arrow-color': '#adb5bd',
+                    'opacity': 0.6,
+                }
+            },
+            {
+                selector: 'edge.cycle-highlighted',
+                style: {
+                    'line-color': '#dc3545',
+                    'target-arrow-color': '#dc3545',
+                    'width': 3,
+                    'opacity': 1,
+                    'z-index': 999,
+                }
+            },
+            {
+                selector: 'node.cycle-highlighted',
+                style: {
+                    'border-width': 3,
+                    'border-color': '#dc3545',
+                }
+            },
+            {
+                selector: 'node[?matched]',
+                style: {
+                    'background-color': '#ffc107',
+                    'border-width': 3,
+                    'border-color': '#ff9800',
+                }
+            },
+            {
+                selector: 'node[matched=false]',
+                style: {
+                    'opacity': 0.6,
+                }
+            }
+        ],
+        layout: layoutConfig,
+        minZoom: 0.2,
+        maxZoom: 3,
+    });
+
+    // Store reference globally for button handlers
+    window.cyGraph = cy;
+    window.cyLabelsVisible = true;
+    window.cyTransitiveVisible = true;
+    window.cyCyclesVisible = false;
+    window.cyGroupCounter = 1;
+
+    // Tooltip element
+    const tooltip = document.getElementById('cy-tooltip');
+    const cyContainer = document.getElementById('cy');
+
+    cy.on('mouseover', 'node', function(e) {
+        const node = e.target;
+        node.style('cursor', 'grab');
+
+        // Show tooltip only when labels are hidden
+        if (!window.cyLabelsVisible) {
+            tooltip.textContent = node.data('label');
+            tooltip.style.display = 'block';
+        }
+    });
+
+    cy.on('mousemove', 'node', function(e) {
+        if (!window.cyLabelsVisible) {
+            const pos = e.renderedPosition;
+            const containerRect = cyContainer.getBoundingClientRect();
+            tooltip.style.left = (pos.x + 15) + 'px';
+            tooltip.style.top = (pos.y - 10) + 'px';
+        }
+    });
+
+    cy.on('mouseout', 'node', function(e) {
+        tooltip.style.display = 'none';
+    });
+
+    cy.on('grab', 'node', function(e) {
+        e.target.style('cursor', 'grabbing');
+        tooltip.style.display = 'none';
+    });
+
+    cy.on('free', 'node', function(e) {
+        e.target.style('cursor', 'grab');
+    });
+})();
+
+function graphFitToScreen() {
+    if (window.cyGraph) {
+        window.cyGraph.fit(30);
+    }
+}
+
+function graphRelayout() {
+    if (window.cyGraph) {
+        window.cyGraph.layout({
+            name: 'cose',
+            animate: true,
+            animationDuration: 500,
+            nodeRepulsion: 8000,
+            idealEdgeLength: 100,
+            padding: 30,
+        }).run();
+    }
+}
+
+function graphToggleLabels() {
+    if (window.cyGraph) {
+        window.cyLabelsVisible = !window.cyLabelsVisible;
+        const btn = document.getElementById('toggle-labels-btn');
+        if (window.cyLabelsVisible) {
+            window.cyGraph.style().selector('node').style('label', 'data(label)').update();
+            btn.classList.add('active');
+        } else {
+            window.cyGraph.style().selector('node').style('label', '').update();
+            btn.classList.remove('active');
+        }
+    }
+}
+
+function graphToggleTransitive() {
+    if (window.cyGraph) {
+        window.cyTransitiveVisible = !window.cyTransitiveVisible;
+        const btn = document.getElementById('toggle-transitive-btn');
+        const transitiveEdges = window.cyGraph.edges('[?transitive]');
+        if (window.cyTransitiveVisible) {
+            transitiveEdges.show();
+            btn.classList.add('active');
+        } else {
+            transitiveEdges.hide();
+            btn.classList.remove('active');
+        }
+    }
+}
+
+function graphToggleCycles() {
+    if (window.cyGraph) {
+        window.cyCyclesVisible = !window.cyCyclesVisible;
+        const btn = document.getElementById('toggle-cycles-btn');
+        const cycleEdges = window.cyGraph.edges('[?inCycle]');
+
+        if (window.cyCyclesVisible) {
+            // Highlight cycle edges and their connected nodes
+            cycleEdges.addClass('cycle-highlighted');
+            cycleEdges.forEach(edge => {
+                edge.source().addClass('cycle-highlighted');
+                edge.target().addClass('cycle-highlighted');
+            });
+            btn.classList.add('active');
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add('btn-danger');
+        } else {
+            // Remove highlighting
+            cycleEdges.removeClass('cycle-highlighted');
+            window.cyGraph.nodes().removeClass('cycle-highlighted');
+            btn.classList.remove('active');
+            btn.classList.remove('btn-danger');
+            btn.classList.add('btn-outline-secondary');
+        }
+    }
+}
+
+function graphGroupSelected() {
+    if (!window.cyGraph) return;
+
+    const selected = window.cyGraph.nodes(':selected').filter(node => !node.isParent());
+    if (selected.length < 2) {
+        alert('Select at least 2 nodes to group');
+        return;
+    }
+
+    const groupName = prompt('Enter group name:', 'Group ' + window.cyGroupCounter);
+    if (!groupName) return;
+
+    const groupId = 'group-' + window.cyGroupCounter++;
+
+    // Add parent node
+    window.cyGraph.add({
+        group: 'nodes',
+        data: { id: groupId, label: groupName }
+    });
+
+    // Move selected nodes into the group
+    selected.forEach(node => {
+        node.move({ parent: groupId });
+    });
+
+    // Deselect and select the new group
+    selected.unselect();
+    window.cyGraph.getElementById(groupId).select();
+}
+
+function graphUngroupSelected() {
+    if (!window.cyGraph) return;
+
+    const selectedParents = window.cyGraph.nodes(':selected').filter(node => node.isParent());
+    if (selectedParents.length === 0) {
+        alert('Select a group to ungroup');
+        return;
+    }
+
+    selectedParents.forEach(parent => {
+        // Move children out of the group
+        parent.children().move({ parent: null });
+        // Remove the parent node
+        parent.remove();
+    });
+}
+
+function graphSaveLayout() {
+    if (!window.cyGraph) return;
+
+    const nodes = [];
+    const groups = [];
+
+    window.cyGraph.nodes().forEach(node => {
+        const pos = node.position();
+        const data = {
+            id: node.id(),
+            label: node.data('label'),
+            x: pos.x,
+            y: pos.y,
+            parent: node.data('parent') || null,
+        };
+
+        if (node.isParent()) {
+            groups.push(data);
+        } else {
+            nodes.push(data);
+        }
+    });
+
+    fetch('/htmx/graph/save/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes, groups }),
+    })
+    .then(response => response.text())
+    .then(html => {
+        document.getElementById('cy-status').innerHTML = html;
+        setTimeout(() => {
+            document.getElementById('cy-status').innerHTML = '';
+        }, 3000);
+    })
+    .catch(err => {
+        document.getElementById('cy-status').innerHTML =
+            '<div class="alert alert-danger">Save failed: ' + err + '</div>';
+    });
+}
+
+function graphAutoCluster() {
+    if (!window.cyGraph) return;
+
+    const nodes = [];
+    window.cyGraph.nodes().forEach(node => {
+        if (!node.isParent()) {
+            const pos = node.position();
+            nodes.push({
+                id: node.id(),
+                x: pos.x,
+                y: pos.y,
+                parent: node.data('parent') || null,
+            });
+        }
+    });
+
+    // Ask user for mode: auto or manual threshold
+    const mode = prompt('Clustering mode:\n- Enter "auto" for automatic threshold (creates ~n/10 clusters)\n- Enter a number for manual threshold\n\nDefault: auto', 'auto');
+    if (mode === null) return;
+
+    let eps = mode.trim().toLowerCase() === 'auto' ? 'auto' : (parseFloat(mode) || 'auto');
+
+    fetch('/htmx/graph/cluster/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            nodes,
+            eps: eps,
+            min_samples: 2,
+        }),
+    })
+    .then(response => response.text())
+    .then(html => {
+        document.getElementById('cy-status').innerHTML = html;
+        // Refresh the graph after clustering
+        htmx.ajax('GET', '/htmx/graph/', {target: '#graph-container', swap: 'outerHTML'});
+    })
+    .catch(err => {
+        document.getElementById('cy-status').innerHTML =
+            '<div class="alert alert-danger">Clustering failed: ' + err + '</div>';
+    });
+}
+
+// Store original graph data for filtering
+window.cyOriginalData = null;
+
+function graphApplyFilter() {
+    const input = document.getElementById('graph-filter-input');
+    const status = document.getElementById('graph-filter-status');
+    const filterText = input.value.trim();
+
+    if (!filterText) {
+        graphClearFilter();
+        return;
+    }
+
+    // Parse comma-separated project names/keys
+    const filterTerms = filterText.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+
+    if (filterTerms.length === 0) {
+        graphClearFilter();
+        return;
+    }
+
+    // Fetch filtered graph data from backend
+    fetch('/htmx/graph/filter/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filter: filterTerms }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!window.cyOriginalData && window.cyGraph) {
+            // Store original data before first filter
+            window.cyOriginalData = {
+                nodes: window.cyGraph.nodes().jsons(),
+                edges: window.cyGraph.edges().jsons(),
+            };
+        }
+
+        if (window.cyGraph) {
+            // Clear and reload with filtered data
+            window.cyGraph.elements().remove();
+            window.cyGraph.add([...data.nodes, ...data.edges]);
+            window.cyGraph.layout({ name: 'preset', padding: 30 }).run();
+            window.cyGraph.fit(30);
+
+            // Count matched vs connected nodes
+            const matchedCount = data.nodes.filter(n => n.data && n.data.matched).length;
+            const connectedCount = data.nodes.filter(n => n.data && !n.data.isGroup).length - matchedCount;
+            status.textContent = `${matchedCount} matched, ${connectedCount} connected, ${data.edges.length} edges`;
+            status.classList.remove('text-muted');
+            status.classList.add('text-primary');
+        }
+    })
+    .catch(err => {
+        status.textContent = 'Filter error: ' + err;
+        status.classList.add('text-danger');
+    });
+}
+
+function graphClearFilter() {
+    const input = document.getElementById('graph-filter-input');
+    const status = document.getElementById('graph-filter-status');
+
+    input.value = '';
+    status.textContent = '';
+    status.classList.remove('text-primary', 'text-danger');
+    status.classList.add('text-muted');
+
+    if (window.cyOriginalData && window.cyGraph) {
+        // Restore original data
+        window.cyGraph.elements().remove();
+        window.cyGraph.add([...window.cyOriginalData.nodes, ...window.cyOriginalData.edges]);
+        window.cyGraph.layout({ name: 'preset', padding: 30 }).run();
+        window.cyGraph.fit(30);
+        window.cyOriginalData = null;
+    }
+}
+</script>

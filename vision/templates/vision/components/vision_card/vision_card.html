@@ -1,0 +1,51 @@
+<div class="card mb-3 vision-card" id="vision-{{ vision.id }}">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start">
+      <div>
+        <h5 class="card-title mb-1">
+          <a href="{% url 'vision:detail' vision.id %}" class="text-decoration-none">
+            {{ vision.name }}
+          </a>
+          <span class="badge bg-{{ vision.status|default:'draft' == 'draft' and 'warning' or vision.status == 'shared' and 'success' or 'secondary' }} ms-2">
+            {{ vision.get_status_display }}
+          </span>
+        </h5>
+        {% if vision.description %}
+          <p class="card-text text-muted small mb-2">{{ vision.description }}</p>
+        {% endif %}
+        <div class="small text-muted">
+          <i class="bi bi-layers me-1"></i>{{ vision.layers.count }} layers
+          <span class="mx-2">|</span>
+          <i class="bi bi-chat-quote me-1"></i>{{ vision.statements.count }} statements
+          <span class="mx-2">|</span>
+          <i class="bi bi-clock me-1"></i>{{ vision.updated_at|timesince }} ago
+        </div>
+      </div>
+      <div class="btn-group btn-group-sm">
+        <a href="{% url 'vision:detail' vision.id %}" class="btn btn-outline-primary" title="Open">
+          <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+        <button
+          type="button"
+          class="btn btn-outline-primary"
+          hx-get="{% url 'vision:vision-form' %}?vision_id={{ vision.id }}"
+          hx-target="#dialog"
+          title="Edit"
+        >
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline-danger"
+          hx-delete="{% url 'vision:vision-delete' %}?vision_id={{ vision.id }}"
+          hx-target="closest .vision-card"
+          hx-swap="outerHTML"
+          hx-confirm="Delete '{{ vision.name }}'?"
+          title="Delete"
+        >
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

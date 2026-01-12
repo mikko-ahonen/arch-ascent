@@ -1,0 +1,58 @@
+<div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title">
+      {% if vision %}Edit Vision{% else %}New Vision{% endif %}
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  </div>
+  <form hx-post="{% url 'vision:vision-form' %}" hx-target="#vision-list" hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+      {% if vision %}
+        <input type="hidden" name="vision_id" value="{{ vision.id }}">
+      {% endif %}
+
+      <div class="mb-3">
+        <label for="vision-name" class="form-label">Name</label>
+        <input
+          type="text"
+          class="form-control"
+          id="vision-name"
+          name="name"
+          value="{{ vision.name|default:'' }}"
+          placeholder="Enter vision name"
+          required
+          autofocus
+        >
+      </div>
+
+      <div class="mb-3">
+        <label for="vision-description" class="form-label">Description</label>
+        <textarea
+          class="form-control"
+          id="vision-description"
+          name="description"
+          rows="3"
+          placeholder="Describe the purpose of this vision..."
+        >{{ vision.description|default:'' }}</textarea>
+      </div>
+
+      <div class="mb-3">
+        <label for="vision-status" class="form-label">Status</label>
+        <select class="form-select" id="vision-status" name="status">
+          {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if vision.status == value %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">
+        {% if vision %}Update{% else %}Create{% endif %} Vision
+      </button>
+    </div>
+  </form>
+</div>

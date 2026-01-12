@@ -1,0 +1,17 @@
+/* Typeahead component styles */
+.typeahead {
+    position: relative;
+}
+
+.typeahead-results {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.typeahead-result-item {
+    transition: background-color 0.15s ease;
+}
+
+.typeahead-result-item:hover {
+    background-color: rgba(13, 110, 253, 0.5) !important;
+}

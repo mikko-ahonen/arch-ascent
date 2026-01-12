@@ -1,0 +1,18 @@
+<div class="typeahead-results bg-dark border border-secondary rounded" x-ref="typeahead_results">
+  {% for result in results %}
+    <div
+      class="typeahead-result-item px-3 py-2"
+      :class="{ 'bg-primary': {{ forloop.counter0 }} === highlighted_index }"
+      @click="mouseSelect({{ forloop.counter0 }})"
+      data-item-id="{{ result.id }}"
+      data-item-name="{{ result.name }}"
+      data-item-type="{{ result.type }}"
+      style="cursor: pointer;">
+        <span>{{ result.name }}</span>
+    </div>
+  {% empty %}
+    <div class="px-3 py-2 text-muted">
+      <small>No results. Press Enter or + to create.</small>
+    </div>
+  {% endfor %}
+</div>

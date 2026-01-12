@@ -1,0 +1,3 @@
+#!/bin/bash
+
+TERM=dumb gh issue list -s open

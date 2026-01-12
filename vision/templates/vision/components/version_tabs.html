@@ -1,0 +1,26 @@
+{# Version tabs for switching between vision versions #}
+<div class="btn-group btn-group-sm me-2" role="group" aria-label="Vision versions">
+  {# Main (live) version tab #}
+  <a href="{% url 'vision:detail' vision.id %}"
+     class="btn {% if not current_version %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+     title="Main layout (live)">
+    <i class="bi bi-house-door me-1"></i>Main
+  </a>
+
+  {# Version tabs #}
+  {% for version in versions %}
+  <a href="{% url 'vision:detail-version' vision.id version.id %}"
+     class="btn {% if current_version.id == version.id %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+     title="{{ version.description|default:version.name }}">
+    {{ version.name }}
+  </a>
+  {% endfor %}
+
+  {# Add version button #}
+  <button class="btn btn-outline-success"
+          hx-get="{% url 'vision:version-form' %}?vision_id={{ vision.id }}"
+          hx-target="#dialog"
+          title="Create new version">
+    <i class="bi bi-plus"></i>
+  </button>
+</div>

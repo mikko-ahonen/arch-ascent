@@ -1,0 +1,14 @@
+<div>
+    <input
+        type="search"
+        class="form-control mb-3"
+        placeholder="{{ placeholder }}"
+        name="q"
+        hx-get="{% url 'search_query' %}"
+        hx-trigger="keyup changed delay:300ms"
+        hx-target="#search-results"
+    >
+    <div id="search-results">
+        {% component "search_results" results=items %}{% endcomponent %}
+    </div>
+</div>

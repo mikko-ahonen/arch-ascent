@@ -1,0 +1,57 @@
+{% load component_tags %}
+<div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title">
+      {% if version %}Edit Version{% else %}Create Version{% endif %}
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  </div>
+  <form hx-post="{% url 'vision:version-form' %}" hx-target="#dialog" hx-swap="innerHTML">
+    {% csrf_token %}
+    <div class="modal-body">
+      {% if version %}
+        <input type="hidden" name="version_id" value="{{ version.id }}">
+      {% endif %}
+      <input type="hidden" name="vision_id" value="{{ vision.id }}">
+
+      <div class="mb-3">
+        <label for="version-name" class="form-label">Version Name</label>
+        <input type="text" class="form-control" id="version-name" name="name"
+               value="{{ version.name|default:'' }}" placeholder="e.g., Option A, Microservices, Hybrid"
+               required>
+        <div class="form-text">Give this version a descriptive name</div>
+      </div>
+
+      <div class="mb-3">
+        <label for="version-description" class="form-label">Description <span class="text-muted">(optional)</span></label>
+        <textarea class="form-control" id="version-description" name="description" rows="2"
+                  placeholder="Describe what this version represents...">{{ version.description|default:'' }}</textarea>
+      </div>
+
+      {% if not version %}
+      <div class="mb-3">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="snapshot-current" name="snapshot_current" checked>
+          <label class="form-check-label" for="snapshot-current">
+            Snapshot current layout
+          </label>
+          <div class="form-text">Save the current layer arrangement into this version</div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="modal-footer">
+      {% if version %}
+      <button type="button" class="btn btn-outline-danger me-auto"
+              hx-delete="{% url 'vision:version-delete' %}?version_id={{ version.id }}"
+              hx-confirm="Delete version '{{ version.name }}'?">
+        <i class="bi bi-trash me-1"></i>Delete
+      </button>
+      {% endif %}
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">
+        {% if version %}Update{% else %}Create{% endif %} Version
+      </button>
+    </div>
+  </form>
+</div>

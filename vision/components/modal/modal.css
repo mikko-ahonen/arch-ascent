@@ -1,0 +1,21 @@
+/* Modal component styles */
+.modal-dialog {
+    pointer-events: auto;
+}
+
+.modal-content {
+    background-color: var(--card-bg, #16213e);
+    border-color: #2a2a4a;
+}
+
+.modal-header {
+    border-bottom-color: #2a2a4a;
+}
+
+.modal-footer {
+    border-top-color: #2a2a4a;
+}
+
+.modal-title {
+    color: var(--text-color, #e4e4e4);
+}

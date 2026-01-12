@@ -1,0 +1,127 @@
+<div id="refactoring-container" class="card">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Refactoring Backlog</h5>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-secondary">{{ total_count }} proposals</span>
+                <button class="btn btn-outline-primary btn-sm"
+                    hx-get="/htmx/refactoring/"
+                    hx-target="#refactoring-container"
+                    hx-swap="outerHTML">
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary {% if not current_filters.proposal_type %}active{% endif %}"
+                    hx-get="/htmx/refactoring/"
+                    hx-target="#refactoring-container"
+                    hx-swap="outerHTML">
+                    All
+                </button>
+                {% for type_key, type_label, type_count in proposal_types %}
+                <button class="btn btn-outline-secondary {% if current_filters.proposal_type == type_key %}active{% endif %}"
+                    hx-get="/htmx/refactoring/?type={{ type_key }}"
+                    hx-target="#refactoring-container"
+                    hx-swap="outerHTML">
+                    {{ type_label }} ({{ type_count }})
+                </button>
+                {% endfor %}
+            </div>
+
+            <select class="form-select form-select-sm" style="width: auto;"
+                hx-get="/htmx/refactoring/"
+                hx-target="#refactoring-container"
+                hx-swap="outerHTML"
+                hx-include="[name='type']"
+                name="impact">
+                <option value="">Impact: All</option>
+                {% for impact_key, impact_label in impact_choices %}
+                <option value="{{ impact_key }}" {% if current_filters.impact == impact_key %}selected{% endif %}>
+                    {{ impact_label }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <select class="form-select form-select-sm" style="width: auto;"
+                hx-get="/htmx/refactoring/"
+                hx-target="#refactoring-container"
+                hx-swap="outerHTML"
+                hx-include="[name='type']"
+                name="status">
+                <option value="">Status: All</option>
+                {% for status_key, status_label in status_choices %}
+                <option value="{{ status_key }}" {% if current_filters.status == status_key %}selected{% endif %}>
+                    {{ status_label }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="card-body p-0">
+        {% if latest_run %}
+        <div class="px-3 py-2 bg-light border-bottom small text-muted">
+            Last analysis: {{ latest_run.started_at|date:"M d, Y H:i" }}
+            | {{ latest_run.total_projects }} projects
+            | {{ latest_run.total_sccs }} SCCs
+            | {{ latest_run.proposals_generated }} proposals
+            {% if latest_run.status == 'failed' %}
+            <span class="badge bg-danger">Failed</span>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if proposals %}
+        <div class="list-group list-group-flush">
+            {% for proposal in proposals %}
+            <div class="list-group-item list-group-item-action"
+                hx-get="/htmx/refactoring/{{ proposal.proposal_id }}/"
+                hx-target="#proposal-detail"
+                hx-swap="innerHTML"
+                style="cursor: pointer;">
+                <div class="d-flex w-100 justify-content-between align-items-start">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <strong>{{ proposal.proposal_id }}</strong>
+                            <span class="badge bg-primary">{{ proposal.get_proposal_type_display }}</span>
+                            <span id="status-{{ proposal.proposal_id }}" class="badge bg-{{ proposal.status_badge_class }}">
+                                {{ proposal.get_status_display }}
+                            </span>
+                        </div>
+                        <p class="mb-1 text-truncate" style="max-width: 600px;">{{ proposal.summary }}</p>
+                        <small class="text-muted">
+                            {{ proposal.scope|length }} services affected
+                            | Created {{ proposal.created_at|timesince }} ago
+                        </small>
+                    </div>
+                    <div class="text-end">
+                        <div class="mb-1">
+                            <span class="badge bg-{{ proposal.impact_badge_class }}">
+                                Impact: {{ proposal.get_impact_display }}
+                            </span>
+                        </div>
+                        <div>
+                            <span class="badge bg-{{ proposal.risk_badge_class }}">
+                                Risk: {{ proposal.get_risk_display }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="p-4 text-center text-muted">
+            <p class="mb-2">No refactoring proposals found.</p>
+            <p class="small">Run <code>python manage.py analyze_refactoring</code> to generate proposals.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Proposal detail modal/panel -->
+<div id="proposal-detail" class="mt-3"></div>

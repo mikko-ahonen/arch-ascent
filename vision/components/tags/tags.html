@@ -1,0 +1,62 @@
+{% load component_tags %}
+
+{% if mode == 'readonly' %}
+{# Readonly Mode - Display tags only #}
+<div class="tags-readonly d-inline-flex align-items-center flex-wrap gap-1">
+  {% if tags %}
+    {% for tag in tags %}
+      <span class="badge bg-primary">{{ tag }}</span>
+    {% endfor %}
+  {% else %}
+    <span class="text-muted small">No tags</span>
+  {% endif %}
+</div>
+
+{% elif mode == 'input' %}
+{# Input Mode - Allow adding/removing tags #}
+<div
+  class="tags-input"
+  x-data="{
+      addedTag: null,
+      {{ x_model }}: '{{ tag_string|escapejs }}'.split(',').filter(t => t.trim())
+  }"
+  x-init="$watch('addedTag', (tag) => {
+      if (tag && tag.name) {
+          $dispatch('add-tag', { tag: tag.name });
+          addedTag = null;
+      }
+  });"
+  hx-post="{% url 'vision:tags-update' %}"
+  hx-trigger="add-tag"
+  hx-include="this"
+  hx-target="this"
+  hx-swap="outerHTML"
+>
+  <input type="hidden" name="{{ field_name }}" :value="{{ x_model }}.join(',')" />
+  <input type="hidden" name="field_name" value="{{ field_name }}" />
+  <input type="hidden" name="current_tags" value="{{ tag_string }}" />
+  <input type="hidden" name="added_tag" :value="addedTag ? addedTag.name : ''" />
+  <input type="hidden" name="x_model" value="{{ x_model }}" />
+
+  <div class="d-flex align-items-center flex-wrap gap-1">
+    {% for tag in tags %}
+    <div class="btn-group btn-group-sm" role="group">
+      <span class="btn btn-primary btn-sm disabled px-2">{{ tag }}</span>
+      <button
+        type="button"
+        class="btn btn-primary btn-sm px-1"
+        hx-post="{% url 'vision:tags-update' %}"
+        hx-vals='{"field_name": "{{ field_name }}", "current_tags": "{{ tag_string }}", "removed_tag": "{{ tag }}", "x_model": "{{ x_model }}"}'
+        hx-target="closest .tags-input"
+        hx-swap="outerHTML"
+      >&times;</button>
+    </div>
+    {% endfor %}
+
+    <div class="ms-1" style="min-width: 150px;">
+      {% component 'typeahead' x_model="addedTag" target="tags" placeholder="Add tag..." %}
+      {% endcomponent %}
+    </div>
+  </div>
+</div>
+{% endif %}

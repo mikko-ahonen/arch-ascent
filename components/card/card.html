@@ -1,0 +1,11 @@
+<div class="col-md-6">
+    <div class="card h-100 card-hover">
+        <div class="card-body">
+            <h5 class="card-title">
+                {% if icon %}<i class="{{ icon }} me-2"></i>{% endif %}
+                {{ title }}
+            </h5>
+            <p class="card-text text-muted">{{ slot }}</p>
+        </div>
+    </div>
+</div>

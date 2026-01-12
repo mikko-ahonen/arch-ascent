@@ -1,0 +1,16 @@
+<div>
+    <ul class="list-group mb-3" id="items-list">
+        {% for item in items %}
+        <li class="list-group-item">{{ item }}</li>
+        {% endfor %}
+    </ul>
+    <button
+        id="load-more-btn"
+        class="btn btn-outline-primary w-100"
+        hx-get="{% url 'items_load_more' %}?page={{ next_page }}"
+        hx-target="#items-list"
+        hx-swap="beforeend"
+    >
+        Load More
+    </button>
+</div>

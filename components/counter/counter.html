@@ -1,0 +1,12 @@
+<div class="d-flex align-items-center gap-3">
+    <span class="display-6">{{ count }}</span>
+    <button
+        class="btn btn-primary"
+        hx-post="{% url 'counter_increment' %}"
+        hx-target="closest div"
+        hx-swap="outerHTML"
+        hx-vals='{"count": {{ count }}}'
+    >
+        Increment
+    </button>
+</div>

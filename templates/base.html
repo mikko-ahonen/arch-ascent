@@ -1,0 +1,170 @@
+{% load static %}
+{% load component_tags %}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Arch Ascent{% endblock %}</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link href="{% static 'css/main.css' %}" rel="stylesheet">
+
+    <!-- Tagged Editor CSS (loaded globally for HTMX modals) -->
+    <link href="{% static 'tagged_editor/tagged_editor.css' %}" rel="stylesheet">
+
+    <style>
+        :root {
+            --header-bg: #ffffff;
+            --header-text: #212529;
+            --page-bg: #1a1a2e;
+            --card-bg: #16213e;
+            --text-color: #e4e4e4;
+        }
+
+        body {
+            background-color: var(--page-bg);
+            color: var(--text-color);
+        }
+
+        .navbar {
+            background-color: var(--header-bg) !important;
+        }
+
+        .navbar .nav-link {
+            color: var(--header-text) !important;
+        }
+
+        .navbar .nav-link:hover {
+            color: #0d6efd !important;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-color: #2a2a4a;
+        }
+
+        .card-header {
+            background-color: rgba(255,255,255,0.05);
+            border-bottom-color: #2a2a4a;
+        }
+
+        footer {
+            background-color: var(--card-bg) !important;
+            border-top: 1px solid #2a2a4a;
+        }
+
+        .text-muted {
+            color: #8a8aa3 !important;
+        }
+
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+
+        .form-control, .form-select {
+            background-color: #0f0f23;
+            border-color: #2a2a4a;
+            color: var(--text-color);
+        }
+
+        .form-control:focus, .form-select:focus {
+            background-color: #0f0f23;
+            border-color: #0d6efd;
+            color: var(--text-color);
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            border-color: #2a2a4a;
+        }
+
+        .modal-header, .modal-footer {
+            border-color: #2a2a4a;
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+
+    {% component_css_dependencies %}
+</head>
+<body class="d-flex flex-column min-vh-100">
+    <!-- CSRF Token -->
+    {% csrf_token %}
+
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="{% url 'vision:home' %}">
+                <img src="{% static 'img/arch-ascent-logo-text.png' %}" alt="Arch Ascent" height="36">
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'vision:home' %}">
+                            <i class="bi bi-eye me-1"></i>Visions
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'graph' %}">
+                            <i class="bi bi-diagram-3 me-1"></i>Dependencies
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow-1">
+        <div class="container-fluid px-4 py-4">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="py-3 mt-auto">
+        <div class="container text-center text-muted">
+            <small>Arch Ascent - Architectural Vision Tool</small>
+        </div>
+    </footer>
+
+    <!-- Modal Container -->
+    {% component "modal" %}{% endcomponent %}
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+    <!-- HTMX Configuration -->
+    <script>
+        document.body.addEventListener('htmx:configRequest', function(evt) {
+            // Include CSRF token in HTMX requests
+            var token = document.querySelector('[name=csrfmiddlewaretoken]');
+            if (token) {
+                evt.detail.headers['X-CSRFToken'] = token.value;
+            }
+        });
+    </script>
+
+    {% component_js_dependencies %}
+
+    <!-- Tagged Editor (loaded globally for HTMX modals) -->
+    <script src="{% static 'tagged_editor/tagged_editor.js' %}"></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,20 @@
+<div id="quote-component">
+    {% if quote %}
+    <blockquote class="blockquote">
+        <p>"{{ quote }}"</p>
+        <footer class="blockquote-footer">{{ author }}</footer>
+    </blockquote>
+    {% else %}
+    <p class="text-muted">Click the button to get a quote.</p>
+    {% endif %}
+    {% if show_button %}
+    <button
+        class="btn btn-primary"
+        hx-get="{% url 'quote_random' %}"
+        hx-target="#quote-component"
+        hx-swap="outerHTML"
+    >
+        Get Quote
+    </button>
+    {% endif %}
+</div>

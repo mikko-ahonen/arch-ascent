@@ -1,0 +1,3 @@
+#!/bin/bash
+
+curl http://usm:8000/restart/

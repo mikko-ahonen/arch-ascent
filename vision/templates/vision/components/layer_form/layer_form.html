@@ -1,0 +1,90 @@
+<div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title">
+      {% if layer %}Edit Layer{% else %}New Layer{% endif %}
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  </div>
+  <form hx-post="{% url 'vision:layer-form' %}" hx-target="#dialog">
+    {% csrf_token %}
+    <div class="modal-body">
+      {% if layer %}
+        <input type="hidden" name="layer_id" value="{{ layer.id }}">
+      {% else %}
+        <input type="hidden" name="vision_id" value="{{ vision.id }}">
+      {% endif %}
+
+      <div class="mb-3">
+        <label for="layer-name" class="form-label">Name</label>
+        <input
+          type="text"
+          class="form-control"
+          id="layer-name"
+          name="name"
+          value="{{ layer.name|default:'' }}"
+          placeholder="Enter layer name"
+          required
+          autofocus
+        >
+      </div>
+
+      <div class="mb-3">
+        <label for="layer-key" class="form-label">Key (optional)</label>
+        <input
+          type="text"
+          class="form-control"
+          id="layer-key"
+          name="key"
+          value="{{ layer.key|default:'' }}"
+          placeholder="auto-generated from name"
+        >
+        <div class="form-text">Unique identifier for the layer. Leave blank to auto-generate.</div>
+      </div>
+
+      <div class="mb-3">
+        <label for="layer-type" class="form-label">Type</label>
+        <select class="form-select" id="layer-type" name="layer_type">
+          {% for value, label in layer_types %}
+            <option value="{{ value }}" {% if layer.layer_type == value %}selected{% endif %}>
+              {{ label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label for="layer-color" class="form-label">Color</label>
+        <div class="input-group">
+          <input
+            type="color"
+            class="form-control form-control-color"
+            id="layer-color"
+            name="color"
+            value="{{ layer.color|default:'#6c757d' }}"
+          >
+          <input
+            type="text"
+            class="form-control"
+            id="layer-color-text"
+            value="{{ layer.color|default:'#6c757d' }}"
+            pattern="^#[0-9A-Fa-f]{6}$"
+            oninput="document.getElementById('layer-color').value = this.value"
+          >
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">
+        {% if layer %}Update{% else %}Create{% endif %} Layer
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Sync color picker with text input
+  document.getElementById('layer-color').addEventListener('input', function() {
+    document.getElementById('layer-color-text').value = this.value;
+  });
+</script>

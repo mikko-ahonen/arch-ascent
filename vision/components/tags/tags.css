@@ -1,0 +1,9 @@
+/* Tags component styles */
+.tags-input .btn-group .btn.disabled {
+    opacity: 1;
+    pointer-events: none;
+}
+
+.tags-input .btn-group .btn:last-child {
+    border-left: 1px solid rgba(255,255,255,0.2);
+}

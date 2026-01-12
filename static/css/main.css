@@ -1,0 +1,55 @@
+/* Custom styles */
+
+/* HTMX loading indicator */
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator {
+    display: inline-block;
+}
+
+.htmx-request.htmx-indicator {
+    display: inline-block;
+}
+
+/* Smooth transitions for HTMX swaps */
+.htmx-swapping {
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+}
+
+/* Dark mode support */
+.dark body {
+    background-color: #1a1a2e;
+    color: #eee;
+}
+
+.dark .bg-light {
+    background-color: #16213e !important;
+}
+
+.dark .card {
+    background-color: #0f3460;
+    border-color: #1a1a2e;
+}
+
+.dark .text-muted {
+    color: #adb5bd !important;
+}
+
+/* Component transitions */
+[x-cloak] {
+    display: none !important;
+}
+
+/* Card hover effect */
+.card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transition: all 0.2s ease-in-out;
+}
+
+.card-hover {
+    transition: all 0.2s ease-in-out;
+}

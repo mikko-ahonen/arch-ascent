@@ -1,0 +1,30 @@
+#!/bin/bash
+
+usage() {
+    echo "Usage: $0 <issue-number>"
+    echo "" >&2
+    echo "Where:" >&2
+    echo "  issue-number    issue number in the issue tracking system" >&2
+    exit 1
+}
+
+if [ $# -ne 1 ]
+  then
+    echo "Error: Invalid number of arguments"
+fi
+
+ISSUE=$1
+
+# Check if ISSUE is empty
+if [ -z "${ISSUE}" ]; then
+    echo "Error: issue number is required" >&2
+    usage
+fi
+
+re='^[0-9]+$'
+if ! [[ $ISSUE =~ $re ]] ; then
+    echo "Error: issue number is not a number" >&2
+    usage
+fi
+
+TERM=dumb gh issue view "${ISSUE}"

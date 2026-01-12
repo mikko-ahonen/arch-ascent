@@ -1,0 +1,135 @@
+<div class="modal-content">
+  <div class="modal-header">
+    <h5 class="modal-title">
+      {% if reference %}Edit Reference{% else %}New Reference{% endif %}
+    </h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+  </div>
+  <form hx-post="{% url 'vision:reference-form' %}" hx-target="#dialog">
+    {% csrf_token %}
+    <div class="modal-body">
+      {% if reference %}
+        <input type="hidden" name="reference_id" value="{{ reference.id }}">
+      {% else %}
+        <input type="hidden" name="vision_id" value="{{ vision.id }}">
+      {% endif %}
+
+      <div class="mb-3">
+        <label for="reference-name" class="form-label">Name</label>
+        <input
+          type="text"
+          class="form-control"
+          id="reference-name"
+          name="name"
+          value="{{ reference.name|default:'' }}"
+          placeholder="e.g., PaymentServices, CoreAPIs"
+          required
+          autofocus
+        >
+        <div class="form-text">A name for this set of components. Used in statements.</div>
+      </div>
+
+      <div class="mb-3">
+        <label for="reference-description" class="form-label">Description <span class="text-muted">(optional)</span></label>
+        <textarea
+          class="form-control"
+          id="reference-description"
+          name="description"
+          rows="2"
+          placeholder="Describe what this reference represents..."
+        >{{ reference.description|default:'' }}</textarea>
+      </div>
+
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center">
+          <label for="reference-definition" class="form-label mb-0">Definition <span class="text-muted">(optional)</span></label>
+          <span id="validation-indicator" class="small"></span>
+        </div>
+        <textarea
+          class="form-control mt-1"
+          id="reference-definition"
+          name="definition"
+          rows="3"
+          placeholder="e.g., components tagged with 'payment' and 'api'"
+        >{{ reference.definition_display|default:'' }}</textarea>
+        <div class="form-text">
+          <strong>Examples:</strong><br>
+          <code>components tagged with 'payment'</code> |
+          <code>components tagged with 'api' and 'payment'</code> |
+          <code>components tagged with 'frontend' or 'backend'</code><br>
+          <code>groups on $$$layer-name$$$</code> |
+          <code>components: service-a, service-b</code>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">
+        {% if reference %}Update{% else %}Create{% endif %} Reference
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  const textarea = document.getElementById('reference-definition');
+  const indicator = document.getElementById('validation-indicator');
+  let debounceTimer = null;
+
+  function setIndicator(status, message) {
+    if (status === 'valid') {
+      indicator.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i><span class="text-success">' + message + '</span>';
+    } else if (status === 'invalid') {
+      indicator.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i><span class="text-danger">Invalid</span>';
+    } else if (status === 'empty') {
+      indicator.innerHTML = '<span class="text-muted">Informal</span>';
+    } else if (status === 'checking') {
+      indicator.innerHTML = '<span class="spinner-border spinner-border-sm text-muted me-1" role="status"></span><span class="text-muted">Checking...</span>';
+    }
+  }
+
+  function validateDefinition() {
+    const text = textarea.value.trim();
+    if (!text) {
+      setIndicator('empty', '');
+      return;
+    }
+
+    setIndicator('checking', '');
+
+    fetch('{% url "vision:reference-validate" %}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+      },
+      body: 'definition=' + encodeURIComponent(text)
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.valid) {
+        setIndicator('valid', data.type_display || 'Formal');
+      } else {
+        setIndicator('invalid', '');
+      }
+    })
+    .catch(() => {
+      setIndicator('invalid', '');
+    });
+  }
+
+  // Validate on input with debounce
+  textarea.addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(validateDefinition, 500);
+  });
+
+  // Initial validation on load
+  if (textarea.value.trim()) {
+    validateDefinition();
+  } else {
+    setIndicator('empty', '');
+  }
+})();
+</script>
