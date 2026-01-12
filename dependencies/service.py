@@ -209,6 +209,7 @@ class CheckmarxService:
         self.cache_dir = Path(cache_dir or DEFAULT_SBOM_CACHE_DIR)
         self._client: httpx.Client | None = None
         self._access_token: str | None = None
+        self._token_expires_at: float = 0  # Unix timestamp when token expires
 
         # Throttle delay between regular API requests (seconds)
         if request_delay is not None:
@@ -266,10 +267,21 @@ class CheckmarxService:
             response.raise_for_status()
             data = response.json()
             self._access_token = data.get('access_token')
-            logger.info("Checkmarx One authentication successful")
+
+            # Store token expiration time (with 60 second buffer for safety)
+            expires_in = data.get('expires_in', 300)  # Default 5 min if not provided
+            self._token_expires_at = time.time() + expires_in - 60
+
+            logger.info(f"Checkmarx One authentication successful (expires in {expires_in}s)")
         except httpx.HTTPStatusError as e:
             logger.error(f"Checkmarx One authentication failed: {e}")
             raise
+
+    def _ensure_valid_token(self):
+        """Check if token is valid, refresh if expired or about to expire."""
+        if not self._access_token or time.time() >= self._token_expires_at:
+            logger.info("Token expired or missing, re-authenticating...")
+            self._authenticate()
 
     def close(self):
         if self._client:
@@ -298,9 +310,8 @@ class CheckmarxService:
         delay: float | None = None,
     ) -> dict | list:
         """Make authenticated request to Checkmarx One API."""
-        # Ensure we're authenticated
-        if not self._access_token:
-            self._authenticate()
+        # Ensure token is valid (refresh if expired)
+        self._ensure_valid_token()
 
         # Wait before making request
         self._throttle(delay)
@@ -475,6 +486,7 @@ class CheckmarxService:
                     raise ValueError("Export completed but no fileUrl provided")
 
                 # Download the SBOM file (Checkmarx One requires auth)
+                self._ensure_valid_token()  # Refresh token if expired during polling
                 self._throttle(self.export_delay)
                 logger.info(f"Downloading SBOM from {file_url}")
                 download_response = httpx.get(
