@@ -472,6 +472,10 @@ class CheckmarxService:
                 download_response = httpx.get(file_url, timeout=60.0)
                 download_response.raise_for_status()
 
+                # Throttle after download
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
+
                 # Save to local file (cache)
                 with open(output_path, 'wb') as f:
                     f.write(download_response.content)
