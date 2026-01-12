@@ -292,17 +292,26 @@ class CheckmarxService:
         return self._request('POST', endpoint, json_data=json_data)
 
     def get_projects(self) -> Iterator[CheckmarxProject]:
-        """Fetch all projects from Checkmarx One."""
+        """Fetch all projects from Checkmarx One with pagination."""
         try:
-            data = self._get('api/projects')
-            projects = data if isinstance(data, list) else data.get('projects', [])
-            for proj in projects:
-                yield CheckmarxProject(
-                    id=proj['id'],
-                    name=proj['name'],
-                    created_on=proj.get('createdAt'),
-                    tags=proj.get('tags'),
-                )
+            offset = 0
+            limit = 100
+            while True:
+                data = self._get('api/projects', {'offset': offset, 'limit': limit})
+                projects = data.get('projects', [])
+                total_count = data.get('totalCount', 0)
+
+                for proj in projects:
+                    yield CheckmarxProject(
+                        id=proj['id'],
+                        name=proj['name'],
+                        created_on=proj.get('createdAt'),
+                        tags=proj.get('tags'),
+                    )
+
+                offset += limit
+                if offset >= total_count or not projects:
+                    break
         except httpx.HTTPStatusError as e:
             logger.error(f"Failed to fetch Checkmarx projects: {e}")
 
