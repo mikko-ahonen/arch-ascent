@@ -474,14 +474,10 @@ class CheckmarxService:
                 if not file_url:
                     raise ValueError("Export completed but no fileUrl provided")
 
-                # Download the SBOM file (use export_delay, with auth header)
+                # Download the SBOM file (fileUrl is a pre-signed URL, no auth needed)
                 self._throttle(self.export_delay)
                 logger.info(f"Downloading SBOM from {file_url}")
-                download_response = httpx.get(
-                    file_url,
-                    headers={'Authorization': f'Bearer {self._access_token}'},
-                    timeout=60.0,
-                )
+                download_response = httpx.get(file_url, timeout=60.0)
                 download_response.raise_for_status()
 
                 # Save to local file (cache)
