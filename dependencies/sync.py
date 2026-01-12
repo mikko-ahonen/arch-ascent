@@ -227,7 +227,7 @@ def export_checkmarx_sboms(
     for i in range(0, len(to_export), batch_size):
         batch = to_export[i:i + batch_size]
 
-        for project_id, project_name, scan_id in batch:
+        for j, (project_id, project_name, scan_id) in enumerate(batch):
             # Check if already cached
             if service.is_sbom_cached(scan_id):
                 result['skipped'] += 1
@@ -237,6 +237,12 @@ def export_checkmarx_sboms(
                     service.export_sbom(scan_id, use_cache=False)
                     result['exported'] += 1
                     logger.info(f"Exported SBOM for {project_name} (scan: {scan_id})")
+
+                    # Delay after each export (not after the very last one)
+                    is_last_item = (i + j + 1) >= len(to_export)
+                    if batch_delay > 0 and not is_last_item:
+                        time.sleep(batch_delay)
+
                 except Exception as e:
                     result['failed'] += 1
                     result['errors'].append({'project': project_name, 'scan_id': scan_id, 'error': str(e)})
@@ -245,10 +251,6 @@ def export_checkmarx_sboms(
             processed += 1
             if on_progress:
                 on_progress(result['exported'], result['skipped'], result['failed'], total)
-
-        # Pause between batches to reduce server load
-        if batch_delay > 0 and i + batch_size < len(to_export):
-            time.sleep(batch_delay)
 
     return result
 
