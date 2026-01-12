@@ -193,76 +193,66 @@ def sync_checkmarx_projects(service: CheckmarxService | None = None) -> int:
 
 def export_checkmarx_sboms(
     service: CheckmarxService,
-    batch_size: int = 10,
-    batch_delay: float = 10.0,
     on_progress: callable = None,
 ) -> dict:
-    """Export SBOMs for all Checkmarx projects in batches.
+    """Export SBOMs for all Checkmarx projects sequentially.
+
+    Processes one project at a time:
+    1. Fetch project
+    2. Get scans for project
+    3. Export SBOM if not cached
+    4. Move to next project
+
+    All request throttling is handled by the service's request_delay setting.
 
     Args:
         service: CheckmarxService instance
-        batch_size: Number of SBOMs to export per batch
-        batch_delay: Seconds to wait between exports (default: 10.0)
-        on_progress: Optional callback(exported, skipped, failed, total) for progress updates
+        on_progress: Optional callback(exported, skipped, failed, processed) for progress updates
 
     Returns:
         dict with 'exported', 'skipped', 'failed', 'errors' counts
     """
-    import time
-
     result = {'exported': 0, 'skipped': 0, 'failed': 0, 'errors': []}
-
-    # Get all projects first (single paginated call)
-    logger.info("Fetching projects...")
-    projects = list(service.get_projects())
-    logger.info(f"Found {len(projects)} projects")
-
-    total = len(projects)
     processed = 0
 
-    for i in range(0, len(projects), batch_size):
-        batch = projects[i:i + batch_size]
+    # Process projects one at a time using the generator
+    for cx_project in service.get_projects():
+        processed += 1
+        logger.info(f"Processing project {processed}: {cx_project.name}")
 
-        for j, cx_project in enumerate(batch):
-            # Get latest scan for this project
-            scans = service.get_scans(cx_project.id)
-            if not scans:
-                processed += 1
-                if on_progress:
-                    on_progress(result['exported'], result['skipped'], result['failed'], total)
-                continue
-
-            scan_id = scans[0].get('id') or scans[0].get('scanId')
-            if not scan_id:
-                processed += 1
-                if on_progress:
-                    on_progress(result['exported'], result['skipped'], result['failed'], total)
-                continue
-
-            # Check if already cached
-            if service.is_sbom_cached(scan_id):
-                result['skipped'] += 1
-                logger.info(f"SBOM already cached for {cx_project.name} (scan: {scan_id})")
-            else:
-                try:
-                    service.export_sbom(scan_id, use_cache=False)
-                    result['exported'] += 1
-                    logger.info(f"Exported SBOM for {cx_project.name} (scan: {scan_id})")
-
-                    # Delay after each export (not after the very last one)
-                    is_last_item = (i + j + 1) >= len(projects)
-                    if batch_delay > 0 and not is_last_item:
-                        time.sleep(batch_delay)
-
-                except Exception as e:
-                    result['failed'] += 1
-                    result['errors'].append({'project': cx_project.name, 'scan_id': scan_id, 'error': str(e)})
-                    logger.error(f"Failed to export SBOM for {cx_project.name}: {e}")
-
-            processed += 1
+        # Get latest scan for this project
+        scans = service.get_scans(cx_project.id)
+        if not scans:
+            logger.info(f"  No scans found for {cx_project.name}")
             if on_progress:
-                on_progress(result['exported'], result['skipped'], result['failed'], total)
+                on_progress(result['exported'], result['skipped'], result['failed'], processed)
+            continue
 
+        scan_id = scans[0].get('id') or scans[0].get('scanId')
+        if not scan_id:
+            logger.info(f"  No scan ID found for {cx_project.name}")
+            if on_progress:
+                on_progress(result['exported'], result['skipped'], result['failed'], processed)
+            continue
+
+        # Check if already cached
+        if service.is_sbom_cached(scan_id):
+            result['skipped'] += 1
+            logger.info(f"  SBOM already cached (scan: {scan_id})")
+        else:
+            try:
+                service.export_sbom(scan_id, use_cache=False)
+                result['exported'] += 1
+                logger.info(f"  Exported SBOM (scan: {scan_id})")
+            except Exception as e:
+                result['failed'] += 1
+                result['errors'].append({'project': cx_project.name, 'scan_id': scan_id, 'error': str(e)})
+                logger.error(f"  Failed to export SBOM: {e}")
+
+        if on_progress:
+            on_progress(result['exported'], result['skipped'], result['failed'], processed)
+
+    logger.info(f"Completed: {result['exported']} exported, {result['skipped']} cached, {result['failed']} failed")
     return result
 
 

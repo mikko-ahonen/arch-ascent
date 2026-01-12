@@ -39,19 +39,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--cache-dir',
             type=str,
-            help='Directory for caching SBOM files (default: .sbom_cache)',
-        )
-        parser.add_argument(
-            '--batch-size',
-            type=int,
-            default=10,
-            help='Number of SBOMs to export per batch (default: 10)',
-        )
-        parser.add_argument(
-            '--batch-delay',
-            type=float,
-            default=10.0,
-            help='Seconds to wait between batches (default: 10.0)',
+            help='Directory for caching SBOM files (default: sbom_cache)',
         )
         parser.add_argument(
             '--projects-only',
@@ -86,8 +74,6 @@ class Command(BaseCommand):
         client_id = options.get('client_id')
         client_secret = options.get('client_secret')
         cache_dir = options.get('cache_dir')
-        batch_size = options.get('batch_size')
-        batch_delay = options.get('batch_delay')
         projects_only = options.get('projects_only')
         export_only = options.get('export_only')
         dependencies_only = options.get('dependencies_only')
@@ -130,14 +116,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('Checkmarx One project sync complete'))
             return
 
-        # Step 2: Export SBOMs in batches (unless skipped)
+        # Step 2: Export SBOMs sequentially (unless skipped)
         if not dependencies_only and not skip_export:
-            self.stdout.write(f'Exporting SBOMs (batch size: {batch_size}, delay: {batch_delay}s)...')
+            delay_msg = f' (request delay: {request_delay}s)' if request_delay else ''
+            self.stdout.write(f'Exporting SBOMs sequentially{delay_msg}...')
             self.stdout.write('  (Previously exported SBOMs will be skipped)')
 
-            def on_progress(exported, skipped, failed, total):
+            def on_progress(exported, skipped, failed, processed):
                 self.stdout.write(
-                    f'  Progress: {exported + skipped + failed}/{total} '
+                    f'  Processed: {processed} '
                     f'(exported: {exported}, cached: {skipped}, failed: {failed})',
                     ending='\r'
                 )
@@ -145,12 +132,7 @@ class Command(BaseCommand):
 
             try:
                 with service:
-                    result = export_checkmarx_sboms(
-                        service,
-                        batch_size=batch_size,
-                        batch_delay=batch_delay,
-                        on_progress=on_progress,
-                    )
+                    result = export_checkmarx_sboms(service, on_progress=on_progress)
                 self.stdout.write('')  # newline after progress
                 self.stdout.write(self.style.SUCCESS(
                     f'SBOM export complete: {result["exported"]} exported, '
