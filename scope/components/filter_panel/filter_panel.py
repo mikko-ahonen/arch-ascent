@@ -47,7 +47,7 @@ class FilterPanel(Component):
         internal_count = Project.objects.filter(internal=True).count()
         external_count = Project.objects.filter(internal=False).count()
 
-        # Get all groups for dropdown with project counts, sorted numerically
+        # Get all groups with project counts, organized hierarchically
         import re
         from django.db.models import Count
 
@@ -59,7 +59,59 @@ class FilterPanel(Component):
             ]
 
         groups_qs = NodeGroup.objects.annotate(project_count=Count('projects'))
-        groups = sorted(groups_qs, key=natural_sort_key)
+
+        # Build hierarchical structure
+        def build_group_tree(groups_qs):
+            """Build a tree of groups with parent-child relationships."""
+            # First pass: get all groups with their data
+            groups_by_id = {}
+            root_groups = []
+
+            for group in groups_qs:
+                group_data = {
+                    'id': group.id,
+                    'key': group.key,
+                    'name': group.name,
+                    'project_count': group.project_count,
+                    'depth': group.depth,
+                    'parent_id': group.parent_id,
+                    'children': [],
+                }
+                groups_by_id[group.id] = group_data
+
+            # Second pass: build tree structure
+            for group_id, group_data in groups_by_id.items():
+                parent_id = group_data['parent_id']
+                if parent_id and parent_id in groups_by_id:
+                    groups_by_id[parent_id]['children'].append(group_data)
+                else:
+                    root_groups.append(group_data)
+
+            # Sort children at each level
+            def sort_children(node):
+                node['children'] = sorted(node['children'], key=lambda g: natural_sort_key(type('obj', (), {'name': g['name']})()))
+                for child in node['children']:
+                    sort_children(child)
+
+            root_groups = sorted(root_groups, key=lambda g: natural_sort_key(type('obj', (), {'name': g['name']})()))
+            for root in root_groups:
+                sort_children(root)
+
+            return root_groups
+
+        # Flatten tree for template iteration with depth info
+        def flatten_group_tree(roots, result=None):
+            """Flatten tree into list with depth info for indented display."""
+            if result is None:
+                result = []
+            for group in roots:
+                result.append(group)
+                if group['children']:
+                    flatten_group_tree(group['children'], result)
+            return result
+
+        group_tree = build_group_tree(groups_qs)
+        groups = flatten_group_tree(group_tree)
 
         # Calculate filtered count based on current selections
         current_filter = {

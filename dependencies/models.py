@@ -3,17 +3,51 @@ from taggit.managers import TaggableManager
 
 
 class NodeGroup(models.Model):
-    """Group of nodes in the dependency graph."""
+    """Group of nodes in the dependency graph, supporting hierarchy."""
     key = models.CharField(max_length=255, unique=True)
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255)  # Display name (e.g., "Bar" for key "foo.bar")
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='children'
+    )
     position_x = models.FloatField(null=True, blank=True)
     position_y = models.FloatField(null=True, blank=True)
 
     class Meta:
-        ordering = ['name']
+        ordering = ['key']
 
     def __str__(self):
         return self.name
+
+    @property
+    def full_path(self):
+        """Return full path from root to this group."""
+        if self.parent:
+            return f"{self.parent.full_path}.{self.name}"
+        return self.name
+
+    @property
+    def depth(self):
+        """Return depth in hierarchy (0 for root groups)."""
+        if self.parent:
+            return self.parent.depth + 1
+        return 0
+
+    def get_ancestors(self):
+        """Return list of ancestors from root to parent."""
+        if self.parent:
+            return self.parent.get_ancestors() + [self.parent]
+        return []
+
+    def get_descendants(self):
+        """Return all descendant groups."""
+        descendants = list(self.children.all())
+        for child in self.children.all():
+            descendants.extend(child.get_descendants())
+        return descendants
 
 
 class Project(models.Model):

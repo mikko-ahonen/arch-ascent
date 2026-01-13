@@ -85,9 +85,9 @@
                 </div>
             </div>
 
-            <!-- Group Filter -->
+            <!-- Group Filter - Prominent Section -->
             <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
+                <div class="d-flex justify-content-between align-items-center mb-2">
                     <label class="form-label fw-semibold small mb-0">Groups</label>
                     <span class="small">
                         <a href="#" @click.prevent="selectAllGroups()">all</a>
@@ -95,9 +95,28 @@
                         <a href="#" @click.prevent="clearAllGroups()">none</a>
                     </span>
                 </div>
-                <select class="form-select form-select-sm" id="filter-groups" multiple size="3" x-model="filters.selected_groups">
+                <div class="group-tree border rounded p-2" style="max-height: 200px; overflow-y: auto;">
                     {% for group in groups %}
-                    <option value="{{ group.id }}">{{ group.name }} ({{ group.project_count }})</option>
+                    <div class="form-check" style="padding-left: {{ group.depth|add:1 }}rem;">
+                        <input class="form-check-input group-checkbox" type="checkbox"
+                            id="group-{{ group.id }}" value="{{ group.id }}"
+                            data-group-id="{{ group.id }}"
+                            data-depth="{{ group.depth }}"
+                            :checked="filters.selected_groups.includes('{{ group.id }}')"
+                            @change="toggleGroup('{{ group.id }}', $event.target.checked)">
+                        <label class="form-check-label small{% if group.depth == 0 %} fw-semibold{% endif %}" for="group-{{ group.id }}">
+                            {{ group.name }}
+                            <span class="text-muted">({{ group.project_count }})</span>
+                        </label>
+                    </div>
+                    {% empty %}
+                    <div class="text-muted small text-center py-2">No groups</div>
+                    {% endfor %}
+                </div>
+                <!-- Hidden select to store values for form compatibility -->
+                <select class="d-none" id="filter-groups" multiple x-model="filters.selected_groups">
+                    {% for group in groups %}
+                    <option value="{{ group.id }}">{{ group.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -212,10 +231,21 @@ function filterPanel() {
         selectAllGroups() {
             const select = document.getElementById('filter-groups');
             this.filters.selected_groups = Array.from(select.options).map(o => o.value);
+            document.querySelectorAll('.group-checkbox').forEach(cb => cb.checked = true);
         },
 
         clearAllGroups() {
             this.filters.selected_groups = [];
+            document.querySelectorAll('.group-checkbox').forEach(cb => cb.checked = false);
+        },
+
+        toggleGroup(groupId, checked) {
+            const idx = this.filters.selected_groups.indexOf(groupId);
+            if (checked && idx === -1) {
+                this.filters.selected_groups.push(groupId);
+            } else if (!checked && idx !== -1) {
+                this.filters.selected_groups.splice(idx, 1);
+            }
         },
 
         applyFilter() {
