@@ -51,7 +51,7 @@
                                 <td>
                                     <input type="checkbox" class="form-check-input project-checkbox" value="{{ item.project.id }}">
                                 </td>
-                                <td>{{ item.project.name }}</td>
+                                <td title="{{ item.project.name }}">{{ item.project.basename|default:item.project.name }}</td>
                                 <td>
                                     <span class="editable-description text-muted small"
                                           data-project-id="{{ item.project.id }}"

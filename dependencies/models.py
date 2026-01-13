@@ -27,7 +27,8 @@ class Project(models.Model):
     ]
 
     key = models.CharField(max_length=255, unique=True, db_index=True)
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255)  # Full name including group (e.g., fi.company.foo.Bar)
+    basename = models.CharField(max_length=255, blank=True, default='')  # Short name (e.g., Bar)
     description = models.TextField(blank=True, default='')
     qualifier = models.CharField(max_length=10, default='TRK')
     visibility = models.CharField(max_length=20, default='public')

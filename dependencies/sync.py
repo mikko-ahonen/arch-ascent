@@ -320,25 +320,82 @@ def sync_checkmarx_dependencies(
     return synced
 
 
-def parse_purl_namespace(purl: str) -> str | None:
-    """Extract namespace from a purl.
+def parse_purl(purl: str) -> dict:
+    """Parse a purl into its components.
 
-    Example: pkg:maven/fi.company.group/PaymentSystem@3.0 -> fi.company.group
+    Example: pkg:maven/fi.company.foo/Bar@1.0 -> {
+        'type': 'maven',
+        'namespace': 'fi.company.foo',
+        'artifact': 'Bar',
+        'version': '1.0'
+    }
     """
-    if not purl or not purl.startswith('pkg:'):
-        return None
+    result = {'type': None, 'namespace': None, 'artifact': None, 'version': None}
 
-    # Remove pkg: prefix and version suffix
-    path = purl[4:]  # Remove 'pkg:'
+    if not purl or not purl.startswith('pkg:'):
+        return result
+
+    # Remove pkg: prefix
+    path = purl[4:]
+
+    # Extract version
     if '@' in path:
-        path = path.rsplit('@', 1)[0]
+        path, result['version'] = path.rsplit('@', 1)
 
     # Split by / to get [type, namespace, name] or [type, name]
     parts = path.split('/')
+    if len(parts) >= 2:
+        result['type'] = parts[0]
     if len(parts) >= 3:
-        # pkg:type/namespace/name -> namespace is parts[1]
-        return parts[1]
-    return None
+        result['namespace'] = parts[1]
+        result['artifact'] = parts[2]
+    elif len(parts) == 2:
+        result['artifact'] = parts[1]
+
+    return result
+
+
+def extract_group_from_purl(purl: str, internal_prefix: str | None) -> tuple[str | None, str, str]:
+    """Extract group, basename, and full name from a purl.
+
+    Args:
+        purl: The package URL (e.g., pkg:maven/fi.company.foo/Bar@1.0)
+        internal_prefix: Prefix for internal packages (e.g., pkg:maven/fi.company)
+
+    Returns:
+        Tuple of (group_key, basename, full_name)
+        - group_key: The sub-namespace after internal prefix (e.g., "foo" -> group name "Foo")
+        - basename: The artifact name (e.g., "Bar")
+        - full_name: namespace.artifact (e.g., "fi.company.foo.Bar")
+    """
+    parsed = parse_purl(purl)
+    namespace = parsed['namespace'] or ''
+    artifact = parsed['artifact'] or ''
+
+    # Build full name: namespace.artifact
+    if namespace and artifact:
+        full_name = f"{namespace}.{artifact}"
+    elif artifact:
+        full_name = artifact
+    else:
+        full_name = purl
+
+    basename = artifact or purl
+
+    # Extract group from namespace (relative to internal prefix)
+    group_key = None
+    if internal_prefix and namespace:
+        # Parse the internal prefix to get its namespace
+        prefix_parsed = parse_purl(internal_prefix)
+        prefix_ns = prefix_parsed['namespace'] or ''
+
+        if namespace.startswith(prefix_ns):
+            # Get the part after the prefix namespace
+            remainder = namespace[len(prefix_ns):].lstrip('.')
+            if remainder:
+                group_key = remainder
+
+    return (group_key, basename, full_name)
 
 
 def import_from_cached_sboms(
@@ -388,7 +445,6 @@ def import_from_cached_sboms(
             if not bom_ref or bom_ref in projects_cache:
                 continue
 
-            package_name = component.get('name', '')
             version = component.get('version', '')
 
             # Determine if internal based on prefix
@@ -396,26 +452,31 @@ def import_from_cached_sboms(
             if internal_prefix and bom_ref.startswith(internal_prefix):
                 is_internal = True
 
-            # Extract group from purl namespace for internal packages
+            # Extract group, basename, and full name from purl
+            group_key, basename, full_name = extract_group_from_purl(bom_ref, internal_prefix)
+
+            # Create/get group for internal packages
             group = None
-            if is_internal:
-                namespace = parse_purl_namespace(bom_ref)
-                if namespace and namespace not in groups_cache:
+            if is_internal and group_key:
+                if group_key not in groups_cache:
+                    # Capitalize group name (e.g., "foo" -> "Foo", "foo.bar" -> "Foo Bar")
+                    group_name = ' '.join(part.capitalize() for part in group_key.replace('.', ' ').split())
                     group, created = NodeGroup.objects.get_or_create(
-                        key=namespace,
-                        defaults={'name': create_group_name(namespace)}
+                        key=group_key,
+                        defaults={'name': group_name}
                     )
-                    groups_cache[namespace] = group
+                    groups_cache[group_key] = group
                     if created:
-                        logger.info(f"Created group: {namespace}")
-                elif namespace:
-                    group = groups_cache[namespace]
+                        logger.info(f"Created group: {group_key}")
+                else:
+                    group = groups_cache[group_key]
 
             project, created = Project.objects.update_or_create(
                 key=bom_ref,
                 defaults={
-                    'name': package_name or bom_ref,
-                    'description': f'version: {version}' if version else '',
+                    'name': full_name,
+                    'basename': basename,
+                    'description': f'v{version}' if version else '',
                     'qualifier': 'TRK' if is_internal else 'PKG',
                     'internal': is_internal,
                     'group': group,
