@@ -47,6 +47,10 @@ class Project(models.Model):
         choices=STATUS_CHOICES,
         default='not_analyzed',
     )
+    internal = models.BooleanField(
+        default=True,
+        help_text="True for internal projects, False for external packages"
+    )
     tags = TaggableManager(blank=True)
 
     class Meta:

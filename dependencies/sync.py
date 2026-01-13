@@ -318,3 +318,159 @@ def sync_checkmarx_dependencies(
                 logger.info(f"Synced Checkmarx dependency: {project_key} -> {package_key}")
 
     return synced
+
+
+def parse_purl_namespace(purl: str) -> str | None:
+    """Extract namespace from a purl.
+
+    Example: pkg:maven/fi.company.group/PaymentSystem@3.0 -> fi.company.group
+    """
+    if not purl or not purl.startswith('pkg:'):
+        return None
+
+    # Remove pkg: prefix and version suffix
+    path = purl[4:]  # Remove 'pkg:'
+    if '@' in path:
+        path = path.rsplit('@', 1)[0]
+
+    # Split by / to get [type, namespace, name] or [type, name]
+    parts = path.split('/')
+    if len(parts) >= 3:
+        # pkg:type/namespace/name -> namespace is parts[1]
+        return parts[1]
+    return None
+
+
+def import_from_cached_sboms(
+    cache_dir,
+    internal_prefix: str = None,
+    on_progress: callable = None,
+) -> dict:
+    """Import projects and dependencies from cached SBOM JSON files.
+
+    This is a fully offline operation - no HTTP requests are made.
+    Projects and dependencies are extracted directly from CycloneDX JSON files.
+
+    Args:
+        cache_dir: Path to directory containing cached SBOM JSON files
+        internal_prefix: Purl prefix for internal packages (e.g., "pkg:maven/fi.company")
+        on_progress: Optional callback(projects_count, dependencies_count)
+
+    Returns:
+        dict with 'projects' and 'dependencies' counts
+    """
+    import json
+    from pathlib import Path
+
+    cache_path = Path(cache_dir)
+    result = {'projects': 0, 'dependencies': 0}
+
+    # Build a lookup of bom-ref -> Project for dependency resolution
+    projects_cache: dict[str, Project] = {}
+    groups_cache: dict[str, NodeGroup] = {}
+
+    # Load existing groups
+    for group in NodeGroup.objects.all():
+        groups_cache[group.key] = group
+
+    # First pass: create all projects from all SBOM files
+    for sbom_file in cache_path.glob('*.json'):
+        try:
+            with open(sbom_file) as f:
+                sbom = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to read {sbom_file}: {e}")
+            continue
+
+        # Create projects for all components
+        for component in sbom.get('components', []):
+            bom_ref = component.get('bom-ref', '')
+            if not bom_ref or bom_ref in projects_cache:
+                continue
+
+            package_name = component.get('name', '')
+            version = component.get('version', '')
+
+            # Determine if internal based on prefix
+            is_internal = False
+            if internal_prefix and bom_ref.startswith(internal_prefix):
+                is_internal = True
+
+            # Extract group from purl namespace for internal packages
+            group = None
+            if is_internal:
+                namespace = parse_purl_namespace(bom_ref)
+                if namespace and namespace not in groups_cache:
+                    group, created = NodeGroup.objects.get_or_create(
+                        key=namespace,
+                        defaults={'name': create_group_name(namespace)}
+                    )
+                    groups_cache[namespace] = group
+                    if created:
+                        logger.info(f"Created group: {namespace}")
+                elif namespace:
+                    group = groups_cache[namespace]
+
+            project, created = Project.objects.update_or_create(
+                key=bom_ref,
+                defaults={
+                    'name': package_name or bom_ref,
+                    'description': f'version: {version}' if version else '',
+                    'qualifier': 'TRK' if is_internal else 'PKG',
+                    'internal': is_internal,
+                    'group': group,
+                    'synced_at': timezone.now(),
+                }
+            )
+            projects_cache[bom_ref] = project
+            if created:
+                result['projects'] += 1
+
+    # Second pass: create dependencies from the dependencies array
+    for sbom_file in cache_path.glob('*.json'):
+        try:
+            with open(sbom_file) as f:
+                sbom = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            continue
+
+        # Process dependencies array (each entry has ref and dependsOn)
+        for dep_entry in sbom.get('dependencies', []):
+            source_ref = dep_entry.get('ref', '')
+            depends_on = dep_entry.get('dependsOn', [])
+
+            source = projects_cache.get(source_ref)
+            if not source:
+                # Source might not be in cache if it's not in components
+                source = Project.objects.filter(key=source_ref).first()
+                if source:
+                    projects_cache[source_ref] = source
+
+            if not source:
+                continue
+
+            for target_ref in depends_on:
+                target = projects_cache.get(target_ref)
+                if not target:
+                    target = Project.objects.filter(key=target_ref).first()
+                    if target:
+                        projects_cache[target_ref] = target
+
+                if not target:
+                    continue
+
+                Dependency.objects.update_or_create(
+                    source=source,
+                    target=target,
+                    defaults={
+                        'scope': 'compile',
+                        'weight': 1,
+                    }
+                )
+                result['dependencies'] += 1
+
+        if on_progress:
+            on_progress(result['projects'], result['dependencies'])
+
+    logger.info(f"Offline import complete: {result['projects']} projects, {result['dependencies']} dependencies")
+    return result

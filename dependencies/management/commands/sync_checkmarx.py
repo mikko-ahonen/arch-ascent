@@ -3,8 +3,9 @@ from dependencies.sync import (
     sync_checkmarx_projects,
     sync_checkmarx_dependencies,
     export_checkmarx_sboms,
+    import_from_cached_sboms,
 )
-from dependencies.service import CheckmarxService
+from dependencies.service import CheckmarxService, DEFAULT_SBOM_CACHE_DIR
 
 
 class Command(BaseCommand):
@@ -71,6 +72,17 @@ class Command(BaseCommand):
             type=float,
             help='Seconds to wait before SBOM export operations (default: 10.0 or CHECKMARX_EXPORT_DELAY env var)',
         )
+        parser.add_argument(
+            '--offline',
+            action='store_true',
+            help='Import from cached SBOM JSON files only, no HTTP requests',
+        )
+        parser.add_argument(
+            '--internal-prefix',
+            type=str,
+            help='Purl prefix for internal packages (e.g., "pkg:maven/fi.company"). '
+                 'Packages matching this prefix are marked as internal.',
+        )
 
     def handle(self, *args, **options):
         base_url = options.get('base_url')
@@ -85,6 +97,40 @@ class Command(BaseCommand):
         skip_export = options.get('skip_export')
         request_delay = options.get('request_delay')
         export_delay = options.get('export_delay')
+        offline = options.get('offline')
+        internal_prefix = options.get('internal_prefix')
+
+        # Offline mode: import from cached JSON files without any HTTP requests
+        if offline:
+            from pathlib import Path
+            cache_path = Path(cache_dir or DEFAULT_SBOM_CACHE_DIR)
+            if not cache_path.exists():
+                self.stderr.write(self.style.ERROR(
+                    f'Cache directory not found: {cache_path}'
+                ))
+                return
+
+            self.stdout.write(f'Importing from cached SBOMs in {cache_path}...')
+            if internal_prefix:
+                self.stdout.write(f'  Internal prefix: {internal_prefix}')
+            try:
+                result = import_from_cached_sboms(
+                    cache_path,
+                    internal_prefix=internal_prefix,
+                    on_progress=lambda p, d: (
+                        self.stdout.write(f'  Processed: {p} projects, {d} dependencies', ending='\r'),
+                        self.stdout.flush()
+                    )
+                )
+                self.stdout.write('')  # newline after progress
+                self.stdout.write(self.style.SUCCESS(
+                    f'Offline import complete: {result["projects"]} projects, '
+                    f'{result["dependencies"]} dependencies'
+                ))
+            except Exception as e:
+                self.stdout.write('')
+                self.stderr.write(self.style.ERROR(f'Failed: {e}'))
+            return
 
         service = CheckmarxService(
             base_url=base_url,
