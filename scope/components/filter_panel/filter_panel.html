@@ -75,6 +75,13 @@
                             Unused (<span x-text="connectivity.unused"></span>)
                         </label>
                     </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-external" x-model="filters.include_external">
+                        <label class="form-check-label small" for="filter-external">
+                            External (<span x-text="externalCount"></span>)
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -138,6 +145,7 @@ function filterPanel() {
             disconnected: {{ connectivity_counts.disconnected }},
             unused: {{ connectivity_counts.unused }},
         },
+        externalCount: {{ external_count }},
         totalCount: {{ total_count }},
         filteredCount: {{ filtered_count }},
         filters: {
@@ -149,6 +157,7 @@ function filterPanel() {
             include_main_cluster: {{ current_filter.include_main_cluster|yesno:"true,false" }},
             include_unused: {{ current_filter.include_unused|yesno:"true,false" }},
             include_disconnected: {{ current_filter.include_disconnected|yesno:"true,false" }},
+            include_external: {{ current_filter.include_external|yesno:"true,false" }},
             selected_groups: [],
             name_pattern: "{{ current_filter.name_pattern }}",
         },
@@ -185,6 +194,7 @@ function filterPanel() {
             this.filters.include_main_cluster = true;
             this.filters.include_disconnected = true;
             this.filters.include_unused = true;
+            // Note: include_external stays as-is (user must explicitly enable)
         },
 
         clearAll() {
@@ -196,6 +206,7 @@ function filterPanel() {
             this.filters.include_main_cluster = false;
             this.filters.include_disconnected = false;
             this.filters.include_unused = false;
+            this.filters.include_external = false;
         },
 
         selectAllGroups() {

@@ -29,6 +29,8 @@ class FilterPanel(Component):
         include_main_cluster: bool = True,
         include_unused: bool = True,
         include_disconnected: bool = False,
+        # Internal/External filter
+        include_external: bool = False,
         # Other filters
         selected_groups: list = None,
         name_pattern: str = '',
@@ -40,6 +42,10 @@ class FilterPanel(Component):
 
         # Get connectivity counts
         connectivity_counts = get_connectivity_counts()
+
+        # Get internal/external counts
+        internal_count = Project.objects.filter(internal=True).count()
+        external_count = Project.objects.filter(internal=False).count()
 
         # Get all groups for dropdown with project counts, sorted numerically
         import re
@@ -65,6 +71,7 @@ class FilterPanel(Component):
             'include_main_cluster': include_main_cluster,
             'include_unused': include_unused,
             'include_disconnected': include_disconnected,
+            'include_external': include_external,
             'selected_groups': selected_groups or [],
             'name_pattern': name_pattern,
         }
@@ -76,6 +83,8 @@ class FilterPanel(Component):
             # Counts
             'status_counts': status_counts,
             'connectivity_counts': connectivity_counts,
+            'internal_count': internal_count,
+            'external_count': external_count,
             'filtered_count': filtered_count,
             'total_count': total_count,
             # Status metadata
@@ -94,6 +103,10 @@ class FilterPanel(Component):
         from scope.classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
 
         queryset = Project.objects.all()
+
+        # Filter by internal/external
+        if not filter_config.get('include_external', False):
+            queryset = queryset.filter(internal=True)
 
         # Build status list
         statuses = []
@@ -179,6 +192,7 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
         'include_main_cluster': data.get('include_main_cluster', True),
         'include_unused': data.get('include_unused', True),
         'include_disconnected': data.get('include_disconnected', False),
+        'include_external': data.get('include_external', False),
         'selected_groups': data.get('selected_groups', []),
         'name_pattern': data.get('name_pattern', ''),
     }
@@ -187,6 +201,10 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
     from scope.classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
 
     queryset = Project.objects.all()
+
+    # Filter by internal/external
+    if not filter_config.get('include_external', False):
+        queryset = queryset.filter(internal=True)
 
     # Build status list
     statuses = []
