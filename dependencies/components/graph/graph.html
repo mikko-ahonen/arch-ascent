@@ -512,4 +512,83 @@ function graphClearFilter() {
         window.cyOriginalData = null;
     }
 }
+
+// Listen for filter-applied event from filter panel
+window.addEventListener('filter-applied', function(e) {
+    const { project_keys, count } = e.detail;
+    const status = document.getElementById('graph-filter-status');
+
+    if (!window.cyGraph) return;
+
+    // Store original data if not already stored
+    if (!window.cyOriginalData) {
+        window.cyOriginalData = {
+            nodes: window.cyGraph.nodes().jsons(),
+            edges: window.cyGraph.edges().jsons(),
+        };
+    }
+
+    // Create a Set for fast lookup (node ID is the project key)
+    const allowedKeys = new Set(project_keys);
+
+    // First pass: determine which nodes should be visible
+    window.cyGraph.nodes().forEach(node => {
+        if (node.isParent()) return; // Skip group nodes for now
+
+        const nodeId = node.id();
+        if (allowedKeys.has(nodeId)) {
+            node.show();
+        } else {
+            node.hide();
+        }
+    });
+
+    // Second pass: show/hide edges based on endpoint visibility
+    window.cyGraph.edges().forEach(edge => {
+        const sourceId = edge.source().id();
+        const targetId = edge.target().id();
+        if (allowedKeys.has(sourceId) && allowedKeys.has(targetId)) {
+            edge.show();
+        } else {
+            edge.hide();
+        }
+    });
+
+    // Third pass: show/hide parent groups based on whether they have visible children
+    window.cyGraph.nodes().filter(n => n.isParent()).forEach(parent => {
+        const visibleChildren = parent.children(':visible');
+        if (visibleChildren.length > 0) {
+            parent.show();
+        } else {
+            parent.hide();
+        }
+    });
+
+    // Update status
+    const visibleNodes = window.cyGraph.nodes(':visible').filter(n => !n.isParent()).length;
+    const visibleEdges = window.cyGraph.edges(':visible').length;
+    status.textContent = `Showing ${visibleNodes} projects, ${visibleEdges} edges`;
+    status.classList.remove('text-muted');
+    status.classList.add('text-primary');
+
+    // Fit view to visible elements
+    const visible = window.cyGraph.elements(':visible');
+    if (visible.length > 0) {
+        window.cyGraph.fit(visible, 30);
+    }
+});
+
+// Function to reset filter panel filtering
+function graphResetPanelFilter() {
+    const status = document.getElementById('graph-filter-status');
+
+    if (window.cyGraph) {
+        // Show all elements
+        window.cyGraph.elements().show();
+        status.textContent = '';
+        status.classList.remove('text-primary');
+        status.classList.add('text-muted');
+        window.cyGraph.fit(30);
+    }
+}
 </script>
