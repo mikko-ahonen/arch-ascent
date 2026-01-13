@@ -11,6 +11,11 @@
       {% if vision %}
         <input type="hidden" name="vision_id" value="{{ vision.id }}">
       {% endif %}
+      <input type="hidden" name="scope_project_ids" id="scope-project-ids" value="">
+
+      <div id="from-scope-notice" class="alert alert-info py-2 d-none mb-3">
+        <small><i class="bi bi-info-circle me-1"></i>Creating vision from <span id="scope-count">0</span> selected projects</small>
+      </div>
 
       <div class="mb-3">
         <label for="vision-name" class="form-label">Name</label>
@@ -56,3 +61,26 @@
     </div>
   </form>
 </div>
+
+<script>
+(function() {
+    // Check if we have scope project IDs in sessionStorage
+    const scopeIds = sessionStorage.getItem('scopeProjectIds');
+    if (scopeIds) {
+        try {
+            const ids = JSON.parse(scopeIds);
+            if (Array.isArray(ids) && ids.length > 0) {
+                // Populate the hidden field
+                document.getElementById('scope-project-ids').value = scopeIds;
+                // Show the notice
+                document.getElementById('from-scope-notice').classList.remove('d-none');
+                document.getElementById('scope-count').textContent = ids.length;
+                // Clear sessionStorage after reading (so refreshing doesn't re-trigger)
+                sessionStorage.removeItem('scopeProjectIds');
+            }
+        } catch (e) {
+            console.error('Error parsing scope project IDs:', e);
+        }
+    }
+})();
+</script>

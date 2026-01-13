@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'main',
     'dependencies',
     'vision',
+    'scope',
 ]
 
 MIDDLEWARE = [
@@ -121,6 +122,7 @@ COMPONENTS = {
         BASE_DIR / 'components',
         BASE_DIR / 'dependencies' / 'components',
         BASE_DIR / 'vision' / 'components',
+        BASE_DIR / 'scope' / 'components',
     ],
 }
 

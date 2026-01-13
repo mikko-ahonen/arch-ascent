@@ -1,59 +1,49 @@
 {% extends "base.html" %}
 {% load component_tags %}
 
-{% block title %}Vision - Arch Ascent{% endblock %}
+{% block title %}Vision{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>Vision Creation</h1>
+<div class="d-flex justify-content-end align-items-center gap-2 mb-3">
     <button
-        class="btn btn-primary"
+        class="btn btn-sm btn-primary"
+        id="new-vision-btn"
         hx-get="{% url 'vision:vision-form' %}"
         hx-target="#dialog"
-    >
-        <i class="bi bi-plus-lg me-2"></i>New Vision
-    </button>
+    >New Vision</button>
 </div>
 
-<div class="row">
-    <div class="col-md-8">
-        <div class="card bg-dark">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-eye me-2"></i>Visions</h5>
-            </div>
-            <div class="card-body">
-                <div id="vision-list">
-                    {% component "vision_list" visions=visions %}{% endcomponent %}
-                </div>
-            </div>
+<div class="card">
+    <div class="card-header py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">Visions</small>
+            <small class="text-muted">{{ visions|length }}</small>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card bg-dark mb-3">
-            <div class="card-header">
-                <h6 class="mb-0"><i class="bi bi-info-circle me-2"></i>About Vision Creation</h6>
-            </div>
-            <div class="card-body">
-                <p class="card-text">
-                    Vision Creation allows you to explore and document architectural intent.
-                    Create visions to organize projects into layers and groups,
-                    define references using tags, and express architectural statements.
-                </p>
-            </div>
-        </div>
-        <div class="card bg-dark">
-            <div class="card-header">
-                <h6 class="mb-0"><i class="bi bi-lightbulb me-2"></i>Quick Start</h6>
-            </div>
-            <div class="card-body">
-                <ol class="mb-0 ps-3">
-                    <li class="mb-2">Create a new vision</li>
-                    <li class="mb-2">Add layers to organize components</li>
-                    <li class="mb-2">Define references with tags</li>
-                    <li>Express architectural statements</li>
-                </ol>
-            </div>
+    <div class="card-body p-0">
+        <div id="vision-list">
+            {% component "vision_list" visions=visions %}{% endcomponent %}
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if coming from scope with pre-selected projects
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('from_scope') === '1') {
+        const projectIds = sessionStorage.getItem('scopeProjectIds');
+        if (projectIds) {
+            // Auto-open the vision form
+            const btn = document.getElementById('new-vision-btn');
+            if (btn) {
+                // Trigger HTMX request
+                htmx.trigger(btn, 'click');
+            }
+        }
+    }
+});
+</script>
 {% endblock %}

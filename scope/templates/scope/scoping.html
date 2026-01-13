@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% load component_tags %}
+{% load scope_filters %}
+
+{% block title %}Scope{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-end align-items-center gap-2 mb-3">
+    <div class="btn-group btn-group-sm" id="status-buttons">
+        <button class="btn btn-outline-secondary status-btn" onclick="setSelectedStatus('active')" disabled>Active</button>
+        <button class="btn btn-outline-secondary status-btn" onclick="setSelectedStatus('stale')" disabled>Stale</button>
+        <button class="btn btn-outline-secondary status-btn" onclick="setSelectedStatus('dormant')" disabled>Dormant</button>
+        <button class="btn btn-outline-secondary status-btn" onclick="setSelectedStatus('not_analyzed')" disabled>Not analyzed</button>
+        <button class="btn btn-outline-secondary status-btn" onclick="setSelectedStatus('orphan')" disabled>Orphan</button>
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="createVisionFromSelection()" id="create-vision-btn" disabled>
+        Create vision from <span id="selected-count">0</span> selected
+    </button>
+</div>
+
+<div class="row">
+    <div class="col-lg-4 col-md-5">
+        {% component "filter_panel" %}{% endcomponent %}
+    </div>
+
+    <div class="col-lg-8 col-md-7">
+        <div class="card">
+            <div class="card-header py-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">Projects</small>
+                    <small class="text-muted"><span id="checked-count">0</span> / <span id="project-list-count">{{ project_count }}</span></small>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" id="project-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 32px;">
+                                    <input type="checkbox" class="form-check-input" id="select-all" onclick="toggleSelectAll()">
+                                </th>
+                                <th>Name</th>
+                                <th>Description</th>
+                                <th style="width: 100px;">Status</th>
+                                <th style="width: 100px;">Group</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in projects %}
+                            <tr data-project-id="{{ item.project.id }}" data-project-key="{{ item.project.key }}" data-status="{{ item.status }}">
+                                <td>
+                                    <input type="checkbox" class="form-check-input project-checkbox" value="{{ item.project.id }}">
+                                </td>
+                                <td>{{ item.project.name }}</td>
+                                <td>
+                                    <span class="editable-description text-muted small"
+                                          data-project-id="{{ item.project.id }}"
+                                          title="Click to edit">{{ item.project.description|default:"" }}</span>
+                                </td>
+                                <td class="text-muted small">{{ item.status|status_display }}</td>
+                                <td class="text-muted small">{{ item.project.group.name|default:"" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-3">No projects</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.editable-description {
+    cursor: text;
+    min-width: 100px;
+    display: inline-block;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.editable-description:hover {
+    background-color: rgba(255,255,255,0.05);
+}
+.editable-description:empty::before {
+    content: "Add description...";
+    color: #555;
+    font-style: italic;
+}
+.editable-description.editing {
+    background-color: rgba(255,255,255,0.08);
+    outline: 1px solid #0d6efd;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+window.addEventListener('filter-applied', function(e) {
+    const allowedKeys = new Set(e.detail.project_keys);
+
+    document.querySelectorAll('#project-table tbody tr').forEach(row => {
+        row.style.display = allowedKeys.has(row.dataset.projectKey) ? '' : 'none';
+    });
+
+    document.getElementById('project-list-count').textContent = e.detail.count;
+
+    updateSelectionCount();
+});
+
+function toggleSelectAll() {
+    const checked = document.getElementById('select-all').checked;
+    document.querySelectorAll('.project-checkbox').forEach(cb => {
+        if (cb.closest('tr').style.display !== 'none') cb.checked = checked;
+    });
+    updateSelectionCount();
+}
+
+function updateSelectionCount() {
+    const checked = document.querySelectorAll('.project-checkbox:checked');
+    const visibleChecked = Array.from(checked).filter(cb => cb.closest('tr').style.display !== 'none').length;
+    document.getElementById('selected-count').textContent = visibleChecked;
+    document.getElementById('checked-count').textContent = visibleChecked;
+    document.getElementById('create-vision-btn').disabled = visibleChecked === 0;
+    document.querySelectorAll('.status-btn').forEach(btn => btn.disabled = visibleChecked === 0);
+}
+
+function setSelectedStatus(status) {
+    const checkboxes = document.querySelectorAll('.project-checkbox:checked');
+    const ids = Array.from(checkboxes)
+        .filter(cb => cb.closest('tr').style.display !== 'none')
+        .map(cb => parseInt(cb.value));
+    if (ids.length === 0) return;
+
+    fetch('/scope/bulk-status/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+        },
+        body: JSON.stringify({ project_ids: ids, status: status }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            // Update the status display in the table
+            const statusDisplay = status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            ids.forEach(id => {
+                const row = document.querySelector(`tr[data-project-id="${id}"]`);
+                if (row) {
+                    row.dataset.status = status;
+                    row.querySelector('td:nth-child(4)').textContent = statusDisplay;
+                }
+            });
+            // Refresh filter counts
+            window.dispatchEvent(new CustomEvent('status-updated'));
+        }
+    })
+    .catch(err => console.error('Status update error:', err));
+}
+
+document.querySelectorAll('.project-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateSelectionCount);
+});
+
+function createVisionFromSelection() {
+    const checkboxes = document.querySelectorAll('.project-checkbox:checked');
+    const ids = Array.from(checkboxes)
+        .filter(cb => cb.closest('tr').style.display !== 'none')
+        .map(cb => parseInt(cb.value));
+    if (ids.length === 0) return;
+    sessionStorage.setItem('scopeProjectIds', JSON.stringify(ids));
+    window.location.href = '{% url "vision:home" %}?from_scope=1';
+}
+
+// Inline editing for descriptions
+document.querySelectorAll('.editable-description').forEach(el => {
+    el.addEventListener('click', function(e) {
+        if (this.contentEditable === 'true') return;
+
+        const originalText = this.textContent;
+        this.contentEditable = true;
+        this.classList.add('editing');
+        this.focus();
+
+        // Select all text
+        const range = document.createRange();
+        range.selectNodeContents(this);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        const saveDescription = () => {
+            this.contentEditable = false;
+            this.classList.remove('editing');
+
+            const newText = this.textContent.trim();
+            if (newText !== originalText) {
+                const projectId = this.dataset.projectId;
+                fetch('/scope/project/' + projectId + '/description/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                    },
+                    body: JSON.stringify({ description: newText }),
+                })
+                .catch(err => {
+                    console.error('Save error:', err);
+                    this.textContent = originalText;
+                });
+            }
+        };
+
+        this.addEventListener('blur', saveDescription, { once: true });
+        this.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.blur();
+            } else if (e.key === 'Escape') {
+                this.textContent = originalText;
+                this.blur();
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

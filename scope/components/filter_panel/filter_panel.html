@@ -1,0 +1,239 @@
+<div id="filter-panel" class="card mb-3" x-data="filterPanel()">
+    <div class="card-header py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">Filter</small>
+            <small class="text-muted" x-text="filteredCount + ' / ' + totalCount"></small>
+        </div>
+    </div>
+
+    <div class="collapse show" id="filter-details">
+        <div class="card-body">
+            <!-- Status Filters -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold small">By Analysis Status</label>
+                <div class="d-flex flex-wrap gap-2">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-active" x-model="filters.include_active">
+                        <label class="form-check-label small" for="filter-active">
+                            Active (<span x-text="counts.active"></span>)
+                        </label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-stale" x-model="filters.include_stale">
+                        <label class="form-check-label small" for="filter-stale">
+                            Stale (<span x-text="counts.stale"></span>)
+                        </label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-dormant" x-model="filters.include_dormant">
+                        <label class="form-check-label small" for="filter-dormant">
+                            Dormant (<span x-text="counts.dormant"></span>)
+                        </label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-not-analyzed" x-model="filters.include_not_analyzed">
+                        <label class="form-check-label small" for="filter-not-analyzed">
+                            Not analyzed (<span x-text="counts.not_analyzed"></span>)
+                        </label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-orphan" x-model="filters.include_orphan">
+                        <label class="form-check-label small" for="filter-orphan">
+                            Orphan (<span x-text="counts.orphan"></span>)
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connectivity Filters -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold small">By Connectivity</label>
+                <div class="d-flex flex-wrap gap-2">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-main-cluster" x-model="filters.include_main_cluster">
+                        <label class="form-check-label small" for="filter-main-cluster">
+                            Main cluster (<span x-text="connectivity.main_cluster"></span>)
+                        </label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-disconnected" x-model="filters.include_disconnected">
+                        <label class="form-check-label small" for="filter-disconnected">
+                            Disconnected (<span x-text="connectivity.disconnected"></span>)
+                        </label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-unused" x-model="filters.include_unused">
+                        <label class="form-check-label small" for="filter-unused">
+                            Unused (<span x-text="connectivity.unused"></span>)
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Group Filter -->
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label fw-semibold small mb-0">Groups</label>
+                    <span class="small">
+                        <a href="#" @click.prevent="selectAllGroups()">all</a>
+                        /
+                        <a href="#" @click.prevent="clearAllGroups()">none</a>
+                    </span>
+                </div>
+                <select class="form-select form-select-sm" id="filter-groups" multiple size="3" x-model="filters.selected_groups">
+                    {% for group in groups %}
+                    <option value="{{ group.id }}">{{ group.name }} ({{ group.project_count }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Name Pattern -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold small">By Name Pattern</label>
+                <input type="text" class="form-control form-control-sm"
+                    id="filter-pattern"
+                    placeholder="e.g., service-*, *-api, payment"
+                    x-model="filters.name_pattern">
+                <small class="text-muted">Use * as wildcard</small>
+            </div>
+
+            <!-- Actions -->
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary" @click="selectAll()">
+                        Select All
+                    </button>
+                    <button class="btn btn-outline-secondary" @click="clearAll()">
+                        Clear All
+                    </button>
+                </div>
+                <button class="btn btn-sm btn-primary" @click="applyFilter()">
+                    Apply Filter
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function filterPanel() {
+    return {
+        counts: {
+            active: {{ status_counts.active }},
+            stale: {{ status_counts.stale }},
+            dormant: {{ status_counts.dormant }},
+            not_analyzed: {{ status_counts.not_analyzed }},
+            orphan: {{ status_counts.orphan }},
+        },
+        connectivity: {
+            main_cluster: {{ connectivity_counts.main_cluster }},
+            disconnected: {{ connectivity_counts.disconnected }},
+            unused: {{ connectivity_counts.unused }},
+        },
+        totalCount: {{ total_count }},
+        filteredCount: {{ filtered_count }},
+        filters: {
+            include_active: {{ current_filter.include_active|yesno:"true,false" }},
+            include_stale: {{ current_filter.include_stale|yesno:"true,false" }},
+            include_dormant: {{ current_filter.include_dormant|yesno:"true,false" }},
+            include_not_analyzed: {{ current_filter.include_not_analyzed|yesno:"true,false" }},
+            include_orphan: {{ current_filter.include_orphan|yesno:"true,false" }},
+            include_main_cluster: {{ current_filter.include_main_cluster|yesno:"true,false" }},
+            include_unused: {{ current_filter.include_unused|yesno:"true,false" }},
+            include_disconnected: {{ current_filter.include_disconnected|yesno:"true,false" }},
+            selected_groups: [],
+            name_pattern: "{{ current_filter.name_pattern }}",
+        },
+
+        init() {
+            // Select all groups by default
+            this.selectAllGroups();
+            // Apply filter on load
+            this.applyFilter();
+            // Listen for status updates from the main page
+            window.addEventListener('status-updated', (e) => {
+                this.refreshCounts();
+            });
+            // Expose refresh function globally
+            window.refreshFilterCounts = () => this.refreshCounts();
+        },
+
+        refreshCounts() {
+            fetch('/scope/htmx/counts/')
+                .then(r => r.json())
+                .then(data => {
+                    this.counts = data.status;
+                    this.connectivity = data.connectivity;
+                    this.totalCount = data.total;
+                });
+        },
+
+        selectAll() {
+            this.filters.include_active = true;
+            this.filters.include_stale = true;
+            this.filters.include_dormant = true;
+            this.filters.include_not_analyzed = true;
+            this.filters.include_orphan = true;
+            this.filters.include_main_cluster = true;
+            this.filters.include_disconnected = true;
+            this.filters.include_unused = true;
+        },
+
+        clearAll() {
+            this.filters.include_active = false;
+            this.filters.include_stale = false;
+            this.filters.include_dormant = false;
+            this.filters.include_not_analyzed = false;
+            this.filters.include_orphan = false;
+            this.filters.include_main_cluster = false;
+            this.filters.include_disconnected = false;
+            this.filters.include_unused = false;
+        },
+
+        selectAllGroups() {
+            const select = document.getElementById('filter-groups');
+            this.filters.selected_groups = Array.from(select.options).map(o => o.value);
+        },
+
+        clearAllGroups() {
+            this.filters.selected_groups = [];
+        },
+
+        applyFilter() {
+            // Convert selected_groups to integers
+            const payload = {
+                ...this.filters,
+                selected_groups: this.filters.selected_groups.map(id => parseInt(id)),
+            };
+
+            fetch('/scope/htmx/apply/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '',
+                },
+                body: JSON.stringify(payload),
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.filteredCount = data.count;
+                window.dispatchEvent(new CustomEvent('filter-applied', {
+                    detail: {
+                        project_ids: data.project_ids,
+                        project_keys: data.project_keys,
+                        count: data.count,
+                    }
+                }));
+            });
+        },
+    };
+}
+</script>

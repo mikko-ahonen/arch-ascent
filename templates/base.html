@@ -19,8 +19,8 @@
 
     <style>
         :root {
-            --header-bg: #ffffff;
-            --header-text: #212529;
+            --header-bg: rgba(255,255,255,0.03);
+            --header-text: #a0a0b8;
             --page-bg: #1a1a2e;
             --card-bg: #16213e;
             --text-color: #e4e4e4;
@@ -44,13 +44,22 @@
         }
 
         .card {
-            background-color: var(--card-bg);
+            background-color: var(--page-bg);
             border-color: #2a2a4a;
         }
 
         .card-header {
-            background-color: rgba(255,255,255,0.05);
+            background-color: var(--card-bg);
             border-bottom-color: #2a2a4a;
+        }
+
+        .card-body {
+            background-color: var(--page-bg);
+        }
+
+        .table {
+            --bs-table-bg: var(--page-bg);
+            --bs-table-hover-bg: rgba(255,255,255,0.03);
         }
 
         footer {
@@ -101,7 +110,7 @@
     <nav class="navbar navbar-expand-lg">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="{% url 'vision:home' %}">
-                <img src="{% static 'img/arch-ascent-logo-text.png' %}" alt="Arch Ascent" height="36">
+                <img src="{% static 'img/arch-ascent-logo-text-white.png' %}" alt="Arch Ascent" height="36">
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -109,14 +118,13 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'vision:home' %}">
-                            <i class="bi bi-eye me-1"></i>Visions
-                        </a>
+                        <a class="nav-link" href="{% url 'scope:scoping' %}">Scope</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'graph' %}">
-                            <i class="bi bi-diagram-3 me-1"></i>Dependencies
-                        </a>
+                        <a class="nav-link" href="{% url 'vision:home' %}">Vision</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">Grounds</a>
                     </li>
                 </ul>
             </div>

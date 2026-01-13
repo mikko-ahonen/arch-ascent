@@ -18,6 +18,14 @@ class NodeGroup(models.Model):
 
 class Project(models.Model):
     """SonarQube project synchronized locally."""
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('stale', 'Stale'),
+        ('dormant', 'Dormant'),
+        ('not_analyzed', 'Not Analyzed'),
+        ('orphan', 'Orphan'),
+    ]
+
     key = models.CharField(max_length=255, unique=True, db_index=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
@@ -33,6 +41,11 @@ class Project(models.Model):
         null=True,
         blank=True,
         related_name='projects'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='not_analyzed',
     )
     tags = TaggableManager(blank=True)
 

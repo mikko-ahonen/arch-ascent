@@ -1,0 +1,265 @@
+"""
+Django component for project filtering panel.
+"""
+from django_components import Component, register
+from django.http import HttpRequest, JsonResponse
+from django.urls import path
+from django.views.decorators.csrf import csrf_exempt
+
+from dependencies.models import Project, NodeGroup
+from scope.classifier import (
+    STATUS_CHOICES, STATUS_COLORS,
+    get_status_counts, get_connectivity_counts,
+)
+
+
+@register("filter_panel")
+class FilterPanel(Component):
+    template_name = "filter_panel/filter_panel.html"
+
+    def get_context_data(
+        self,
+        # Status filters
+        include_active: bool = True,
+        include_stale: bool = True,
+        include_dormant: bool = False,
+        include_not_analyzed: bool = False,
+        include_orphan: bool = False,
+        # Connectivity filters
+        include_main_cluster: bool = True,
+        include_unused: bool = True,
+        include_disconnected: bool = False,
+        # Other filters
+        selected_groups: list = None,
+        name_pattern: str = '',
+        # UI options
+        target_id: str = 'graph-container',
+    ):
+        # Get status counts
+        status_counts = get_status_counts()
+
+        # Get connectivity counts
+        connectivity_counts = get_connectivity_counts()
+
+        # Get all groups for dropdown with project counts, sorted numerically
+        import re
+        from django.db.models import Count
+
+        def natural_sort_key(group):
+            """Sort key for natural ordering (Cluster 1, 2, 10 not 1, 10, 2)."""
+            return [
+                int(text) if text.isdigit() else text.lower()
+                for text in re.split(r'(\d+)', group.name)
+            ]
+
+        groups_qs = NodeGroup.objects.annotate(project_count=Count('projects'))
+        groups = sorted(groups_qs, key=natural_sort_key)
+
+        # Calculate filtered count based on current selections
+        current_filter = {
+            'include_active': include_active,
+            'include_stale': include_stale,
+            'include_dormant': include_dormant,
+            'include_not_analyzed': include_not_analyzed,
+            'include_orphan': include_orphan,
+            'include_main_cluster': include_main_cluster,
+            'include_unused': include_unused,
+            'include_disconnected': include_disconnected,
+            'selected_groups': selected_groups or [],
+            'name_pattern': name_pattern,
+        }
+
+        filtered_count = self._get_filtered_count(current_filter)
+        total_count = Project.objects.count()
+
+        return {
+            # Counts
+            'status_counts': status_counts,
+            'connectivity_counts': connectivity_counts,
+            'filtered_count': filtered_count,
+            'total_count': total_count,
+            # Status metadata
+            'status_choices': STATUS_CHOICES,
+            'status_colors': STATUS_COLORS,
+            # Filter options
+            'groups': groups,
+            # Current filter state
+            'current_filter': current_filter,
+            # UI options
+            'target_id': target_id,
+        }
+
+    def _get_filtered_count(self, filter_config):
+        """Calculate how many projects match the current filter config."""
+        from scope.classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
+
+        queryset = Project.objects.all()
+
+        # Build status list
+        statuses = []
+        if filter_config['include_active']:
+            statuses.append('active')
+        if filter_config['include_stale']:
+            statuses.append('stale')
+        if filter_config['include_dormant']:
+            statuses.append('dormant')
+        if filter_config['include_not_analyzed']:
+            statuses.append('not_analyzed')
+        if filter_config['include_orphan']:
+            statuses.append('orphan')
+
+        if statuses:
+            queryset = filter_by_status(queryset, statuses)
+        else:
+            queryset = queryset.none()
+
+        # Filter by groups - if none selected, show nothing
+        # Include projects with no group when all groups are selected
+        if filter_config['selected_groups']:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(group_id__in=filter_config['selected_groups']) | Q(group__isnull=True)
+            )
+        else:
+            queryset = queryset.none()
+
+        # Filter by name pattern
+        if filter_config['name_pattern']:
+            import fnmatch
+            pattern = filter_config['name_pattern'].strip()
+            if '*' in pattern:
+                regex_pattern = fnmatch.translate(pattern)
+                queryset = queryset.filter(name__iregex=regex_pattern)
+            else:
+                queryset = queryset.filter(name__icontains=pattern)
+
+        # Filter by connectivity (main cluster vs disconnected)
+        main_cluster_ids = get_main_cluster_ids()
+        include_main = filter_config.get('include_main_cluster', True)
+        include_disconnected = filter_config.get('include_disconnected', False)
+
+        if main_cluster_ids:
+            if include_main and not include_disconnected:
+                queryset = queryset.filter(id__in=main_cluster_ids)
+            elif include_disconnected and not include_main:
+                queryset = queryset.exclude(id__in=main_cluster_ids)
+            # If both or neither, no filtering needed
+
+        # Filter out unused if not included
+        if not filter_config.get('include_unused', True):
+            unused_ids = get_unused_project_ids()
+            queryset = queryset.exclude(id__in=unused_ids)
+
+        return queryset.distinct().count()
+
+    @staticmethod
+    def get_urls():
+        return [
+            path('filter/apply/', filter_apply, name='filter_apply'),
+            path('filter/counts/', filter_counts, name='filter_counts'),
+        ]
+
+
+@csrf_exempt
+def filter_apply(request: HttpRequest) -> JsonResponse:
+    """Apply filter and return matching project IDs."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    import json
+    data = json.loads(request.body) if request.body else {}
+
+    # Build filter config from request
+    filter_config = {
+        'include_active': data.get('include_active', True),
+        'include_stale': data.get('include_stale', True),
+        'include_dormant': data.get('include_dormant', False),
+        'include_not_analyzed': data.get('include_not_analyzed', False),
+        'include_orphan': data.get('include_orphan', False),
+        'include_main_cluster': data.get('include_main_cluster', True),
+        'include_unused': data.get('include_unused', True),
+        'include_disconnected': data.get('include_disconnected', False),
+        'selected_groups': data.get('selected_groups', []),
+        'name_pattern': data.get('name_pattern', ''),
+    }
+
+    # Get filtered project IDs
+    from scope.classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
+
+    queryset = Project.objects.all()
+
+    # Build status list
+    statuses = []
+    if filter_config['include_active']:
+        statuses.append('active')
+    if filter_config['include_stale']:
+        statuses.append('stale')
+    if filter_config['include_dormant']:
+        statuses.append('dormant')
+    if filter_config['include_not_analyzed']:
+        statuses.append('not_analyzed')
+    if filter_config['include_orphan']:
+        statuses.append('orphan')
+
+    if statuses:
+        queryset = filter_by_status(queryset, statuses)
+    else:
+        queryset = queryset.none()
+
+    # Filter by groups - if none selected, show nothing
+    # Include projects with no group when all groups are selected
+    if filter_config['selected_groups']:
+        from django.db.models import Q
+        queryset = queryset.filter(
+            Q(group_id__in=filter_config['selected_groups']) | Q(group__isnull=True)
+        )
+    else:
+        queryset = queryset.none()
+
+    # Filter by name pattern
+    if filter_config['name_pattern']:
+        import fnmatch
+        pattern = filter_config['name_pattern'].strip()
+        if '*' in pattern:
+            regex_pattern = fnmatch.translate(pattern)
+            queryset = queryset.filter(name__iregex=regex_pattern)
+        else:
+            queryset = queryset.filter(name__icontains=pattern)
+
+    # Filter by connectivity (main cluster vs disconnected)
+    main_cluster_ids = get_main_cluster_ids()
+    include_main = filter_config.get('include_main_cluster', True)
+    include_disconnected = filter_config.get('include_disconnected', False)
+
+    if main_cluster_ids:
+        if include_main and not include_disconnected:
+            queryset = queryset.filter(id__in=main_cluster_ids)
+        elif include_disconnected and not include_main:
+            queryset = queryset.exclude(id__in=main_cluster_ids)
+        # If both or neither, no filtering needed
+
+    # Filter out unused if not included
+    if not filter_config.get('include_unused', True):
+        unused_ids = get_unused_project_ids()
+        queryset = queryset.exclude(id__in=unused_ids)
+
+    project_ids = list(queryset.distinct().values_list('id', flat=True))
+    project_keys = list(queryset.distinct().values_list('key', flat=True))
+
+    return JsonResponse({
+        'count': len(project_ids),
+        'project_ids': project_ids,
+        'project_keys': project_keys,
+    })
+
+
+def filter_counts(request: HttpRequest) -> JsonResponse:
+    """Get current filter counts."""
+    status_counts = get_status_counts()
+    connectivity_counts = get_connectivity_counts()
+
+    return JsonResponse({
+        'status': status_counts,
+        'connectivity': connectivity_counts,
+        'total': Project.objects.count(),
+    })

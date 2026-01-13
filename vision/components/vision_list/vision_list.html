@@ -4,9 +4,8 @@
   {% for vision in visions %}
     {% component "vision_card" vision=vision %}{% endcomponent %}
   {% empty %}
-    <div class="text-center py-5">
-      <i class="bi bi-eye-slash display-4 text-muted"></i>
-      <p class="text-muted mt-3">No visions yet. Create one to get started!</p>
+    <div class="text-center text-muted py-3">
+      No visions
     </div>
   {% endfor %}
 </div>

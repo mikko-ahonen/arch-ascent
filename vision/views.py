@@ -7,7 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
-from .models import Vision, Layer, Statement, Reference, VisionVersion
+from .models import Vision, Layer, Statement, Reference, VisionVersion, Group, GroupMembership
 from dependencies.services.reference_parser import analyze_reference_definition
 
 
@@ -53,6 +53,15 @@ def vision_form(request):
             status=400
         )
 
+    # Get scope project IDs if provided (from scope app)
+    scope_project_ids_raw = request.POST.get('scope_project_ids', '')
+    scope_project_ids = []
+    if scope_project_ids_raw:
+        try:
+            scope_project_ids = json.loads(scope_project_ids_raw)
+        except json.JSONDecodeError:
+            pass
+
     if vision_id:
         vision = get_object_or_404(Vision, pk=vision_id)
         vision.name = name
@@ -65,6 +74,41 @@ def vision_form(request):
             description=description,
             status=status
         )
+
+        # If we have scope projects, create a default layer and group with them
+        if scope_project_ids:
+            from dependencies.models import Project
+            # Create a default layer
+            default_layer = Layer.objects.create(
+                vision=vision,
+                key='scope',
+                name='Scope',
+                layer_type='freeform',
+                color='#6c757d',
+                order=0
+            )
+            # Create a default group within the layer
+            default_group = Group.objects.create(
+                layer=default_layer,
+                key='selected',
+                name='Selected Projects',
+                color='#0d6efd'
+            )
+            # Add all selected projects to the group
+            projects = Project.objects.filter(id__in=scope_project_ids)
+            for project in projects:
+                GroupMembership.objects.create(
+                    group=default_group,
+                    project=project,
+                    membership_type='explicit'
+                )
+
+    # If created from scope, redirect to vision detail page
+    if scope_project_ids and not vision_id:
+        response = HttpResponse('')
+        response['HX-Trigger'] = 'closeModal'
+        response['HX-Redirect'] = f'/vision/{vision.id}/'
+        return response
 
     # Return updated list
     visions = Vision.objects.all().order_by('-updated_at')
