@@ -1,2 +1,2 @@
 #!/bin/bash
-screen -D -RR v1
+screen -D -RR arch-ascent
