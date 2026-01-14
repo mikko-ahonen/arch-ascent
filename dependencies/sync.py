@@ -355,6 +355,26 @@ def parse_purl(purl: str) -> dict:
     return result
 
 
+def strip_purl_version(purl: str) -> tuple[str, str | None]:
+    """Strip the version from a purl.
+
+    Args:
+        purl: Full purl like 'pkg:maven/org.example/lib@1.0.0'
+
+    Returns:
+        Tuple of (purl_without_version, version)
+        e.g., ('pkg:maven/org.example/lib', '1.0.0')
+    """
+    if not purl:
+        return purl, None
+
+    if '@' in purl:
+        base, version = purl.rsplit('@', 1)
+        return base, version
+
+    return purl, None
+
+
 def extract_group_from_purl(purl: str, internal_prefix: str | None) -> tuple[str | None, str, str]:
     """Extract group, basename, and full name from a purl.
 
@@ -481,6 +501,9 @@ def import_from_cached_sboms(
     for group in NodeGroup.objects.all():
         groups_cache[group.key] = group
 
+    # Track bom-ref -> version-less key mapping for dependency resolution
+    bomref_to_key: dict[str, str] = {}
+
     # First pass: create all projects from all SBOM files
     for sbom_file in cache_path.glob('*.json'):
         try:
@@ -493,18 +516,33 @@ def import_from_cached_sboms(
         # Create projects for all components
         for component in sbom.get('components', []):
             bom_ref = component.get('bom-ref', '')
-            if not bom_ref or bom_ref in projects_cache:
+            if not bom_ref:
                 continue
 
-            version = component.get('version', '')
+            # Strip version from purl to get stable key
+            # e.g., pkg:maven/org.example/lib@1.0.0 -> pkg:maven/org.example/lib
+            project_key, version = strip_purl_version(bom_ref)
 
-            # Determine if internal based on prefix
+            # Map bom-ref (with version) to project key (without version)
+            bomref_to_key[bom_ref] = project_key
+
+            # Skip if we've already processed this package (different version)
+            if project_key in projects_cache:
+                continue
+
+            # Use version from component if not in bom-ref
+            if not version:
+                version = component.get('version', '')
+
+            # Determine if internal based on prefix (use version-less key)
             is_internal = False
-            if internal_prefix and bom_ref.startswith(internal_prefix):
-                is_internal = True
+            if internal_prefix:
+                internal_prefix_base, _ = strip_purl_version(internal_prefix)
+                if project_key.startswith(internal_prefix_base):
+                    is_internal = True
 
-            # Extract group, basename, and full name from purl
-            group_key, basename, full_name = extract_group_from_purl(bom_ref, internal_prefix)
+            # Extract group, basename, and full name from purl (use version-less key)
+            group_key, basename, full_name = extract_group_from_purl(project_key, internal_prefix)
 
             # Create/get group hierarchy for internal packages
             group = None
@@ -512,7 +550,7 @@ def import_from_cached_sboms(
                 group = get_or_create_group_hierarchy(group_key, groups_cache)
 
             project, created = Project.objects.update_or_create(
-                key=bom_ref,
+                key=project_key,
                 defaults={
                     'name': full_name,
                     'basename': basename,
@@ -523,7 +561,7 @@ def import_from_cached_sboms(
                     'synced_at': timezone.now(),
                 }
             )
-            projects_cache[bom_ref] = project
+            projects_cache[project_key] = project
             if created:
                 result['projects'] += 1
 
@@ -540,22 +578,28 @@ def import_from_cached_sboms(
             source_ref = dep_entry.get('ref', '')
             depends_on = dep_entry.get('dependsOn', [])
 
-            source = projects_cache.get(source_ref)
+            # Map bom-ref (with version) to version-less key
+            source_key = bomref_to_key.get(source_ref) or strip_purl_version(source_ref)[0]
+
+            source = projects_cache.get(source_key)
             if not source:
                 # Source might not be in cache if it's not in components
-                source = Project.objects.filter(key=source_ref).first()
+                source = Project.objects.filter(key=source_key).first()
                 if source:
-                    projects_cache[source_ref] = source
+                    projects_cache[source_key] = source
 
             if not source:
                 continue
 
             for target_ref in depends_on:
-                target = projects_cache.get(target_ref)
+                # Map bom-ref (with version) to version-less key
+                target_key = bomref_to_key.get(target_ref) or strip_purl_version(target_ref)[0]
+
+                target = projects_cache.get(target_key)
                 if not target:
-                    target = Project.objects.filter(key=target_ref).first()
+                    target = Project.objects.filter(key=target_key).first()
                     if target:
-                        projects_cache[target_ref] = target
+                        projects_cache[target_key] = target
 
                 if not target:
                     continue
