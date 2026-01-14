@@ -3,31 +3,37 @@
         {% for stmt in vision.statements.all %}
             <li class="list-group-item bg-dark">
                 <div class="d-flex align-items-start">
-                    {% if stmt.is_satisfied is True %}
-                        <i class="bi bi-check-circle-fill text-success me-2 mt-1"></i>
-                    {% elif stmt.is_satisfied is False %}
-                        <i class="bi bi-x-circle-fill text-danger me-2 mt-1"></i>
+                    {% if stmt.status == 'formal' %}
+                        <i class="bi bi-check-circle-fill text-success me-2 mt-1" title="Formal"></i>
                     {% else %}
-                        <i class="bi bi-question-circle me-2 mt-1 text-muted"></i>
+                        <i class="bi bi-chat-text text-muted me-2 mt-1" title="Informal"></i>
                     {% endif %}
                     <div class="flex-grow-1">
                         <small>{{ stmt.natural_language }}</small>
-                        <span class="badge bg-secondary ms-1">{{ stmt.get_statement_type_display }}</span>
                     </div>
-                    <button
-                        class="btn btn-sm btn-link text-primary p-0 ms-2"
-                        hx-get="{% url 'vision:statement-form' %}?statement_id={{ stmt.id }}"
-                        hx-target="#dialog"
-                        title="Edit"
-                    >
-                        <i class="bi bi-pencil-fill"></i>
-                    </button>
+                    <div class="btn-group btn-group-sm ms-2">
+                        <button
+                            class="btn btn-outline-secondary"
+                            hx-get="{% url 'vision:statement-form' %}?statement_id={{ stmt.id }}"
+                            hx-target="#dialog"
+                            title="Edit"
+                        ><i class="bi bi-pencil"></i></button>
+                        <button
+                            class="btn btn-outline-secondary"
+                            hx-delete="{% url 'vision:statement-delete' %}?statement_id={{ stmt.id }}"
+                            hx-target="#statements-list"
+                            hx-swap="innerHTML"
+                            hx-confirm="Delete this statement?"
+                            title="Delete"
+                        ><i class="bi bi-trash"></i></button>
+                    </div>
                 </div>
             </li>
         {% endfor %}
     </ul>
 {% else %}
     <div class="p-3 text-center text-muted">
-        <p class="mb-0 small">No statements defined</p>
+        <i class="bi bi-chat-quote display-6"></i>
+        <p class="mt-2 mb-0 small">No statements defined</p>
     </div>
 {% endif %}

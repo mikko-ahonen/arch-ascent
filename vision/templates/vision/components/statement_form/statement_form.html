@@ -15,31 +15,15 @@
       <input type="hidden" name="vision_id" value="{{ vision.id }}">
 
       <div class="mb-3">
-        <label for="statement-description" class="form-label">Description <span class="text-muted">(optional)</span></label>
-        <textarea class="form-control" id="statement-description" name="description" rows="2"
-                  placeholder="Why is this statement important?">{{ statement.description|default:"" }}</textarea>
-      </div>
-
-      <div class="mb-3">
         <label class="form-label">Statement</label>
         <p class="text-muted small mb-2">
           Write your architectural intent statement. Select text and tag it with references to make it evaluable.
         </p>
-        <div class="form-text mb-2">
-          <strong>Patterns:</strong>
-          "there must/should be $$$ref$$$" |
-          "[every] $$$X$$$ must/should be in $$$Y$$$" |
-          "[every] $$$X$$$ must/should not depend on $$$Y$$$" |
-          "there must/should be exactly N $$$ref$$$" |
-          "all components must have an owner on $$$layer$$$" |
-          "$$$layer-A$$$ corresponds with $$$layer-B$$$" (1:1) |
-          "$$$layer-A$$$ refines $$$layer-B$$$" (many:1)
-        </div>
         {% component "tagged_editor"
            editor_id="statement-editor"
            content=statement.natural_language|default:""
            tags=tags
-           placeholder="e.g., $$$payment-api$$$ must be in $$$domain-layer$$$..."
+           placeholder="e.g., PaymentAPI must be in DomainLayer"
            available_tags=references
            vision_id=vision.id
         %}{% endcomponent %}
@@ -48,7 +32,19 @@
       {% if statement %}
       <div class="mb-3">
         <div class="row">
-          <div class="col-6">
+          <div class="col-4">
+            <label class="form-label text-muted small">Validation</label>
+            <div class="form-control-plaintext">
+              {% if statement.is_satisfied is True %}
+                <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Satisfied</span>
+              {% elif statement.is_satisfied is False %}
+                <span class="badge bg-danger"><i class="bi bi-x-lg me-1"></i>Violated</span>
+              {% else %}
+                <span class="badge bg-secondary"><i class="bi bi-question-lg me-1"></i>Not evaluated</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-4">
             <label class="form-label text-muted small">Inferred Type</label>
             <div class="form-control-plaintext">
               {% if statement.statement_type %}
@@ -58,8 +54,8 @@
               {% endif %}
             </div>
           </div>
-          <div class="col-6">
-            <label class="form-label text-muted small">Formalization Status</label>
+          <div class="col-4">
+            <label class="form-label text-muted small">Formalization</label>
             <div class="form-control-plaintext">
               <span class="badge {% if statement.status == 'formal' %}bg-success{% elif statement.status == 'semi_formal' %}bg-warning{% else %}bg-secondary{% endif %}">
                 {{ statement.get_status_display }}

@@ -17,7 +17,7 @@ def scoping(request):
 
     Allows users to filter and select which projects to focus on.
     """
-    projects = Project.objects.select_related('group').order_by('name')
+    projects = Project.objects.select_related('group').prefetch_related('tags').order_by('name')
 
     # Get counts for display
     status_counts = get_status_counts()
@@ -68,3 +68,36 @@ def bulk_update_status(request):
 
     updated = Project.objects.filter(id__in=project_ids).update(status=status)
     return JsonResponse({'success': True, 'updated': updated})
+
+
+def get_all_tags(request):
+    """Get all unique tags across projects."""
+    from taggit.models import Tag
+    tags = list(Tag.objects.values_list('name', flat=True).order_by('name'))
+    return JsonResponse({'tags': tags})
+
+
+@require_POST
+def bulk_update_tags(request):
+    """Add or remove a tag from multiple projects."""
+    import json
+    data = json.loads(request.body) if request.body else {}
+    project_ids = data.get('project_ids', [])
+    tag = data.get('tag', '').strip()
+    action = data.get('action', 'add')
+
+    if not tag:
+        return JsonResponse({'error': 'Tag is required'}, status=400)
+
+    projects = Project.objects.filter(id__in=project_ids)
+
+    if action == 'add':
+        for project in projects:
+            project.tags.add(tag)
+    elif action == 'remove':
+        for project in projects:
+            project.tags.remove(tag)
+    else:
+        return JsonResponse({'error': 'Invalid action'}, status=400)
+
+    return JsonResponse({'success': True, 'count': projects.count()})

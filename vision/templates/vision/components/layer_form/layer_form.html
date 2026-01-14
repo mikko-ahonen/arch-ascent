@@ -60,13 +60,13 @@
             class="form-control form-control-color"
             id="layer-color"
             name="color"
-            value="{{ layer.color|default:'#6c757d' }}"
+            value="{% if layer %}{{ layer.color }}{% else %}{{ default_color }}{% endif %}"
           >
           <input
             type="text"
             class="form-control"
             id="layer-color-text"
-            value="{{ layer.color|default:'#6c757d' }}"
+            value="{% if layer %}{{ layer.color }}{% else %}{{ default_color }}{% endif %}"
             pattern="^#[0-9A-Fa-f]{6}$"
             oninput="document.getElementById('layer-color').value = this.value"
           >

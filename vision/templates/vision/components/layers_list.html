@@ -1,0 +1,38 @@
+{% if vision.layers.count > 0 %}
+    <ul class="list-group list-group-flush">
+        {% for layer in vision.layers.all %}
+            <li class="list-group-item layer-item d-flex justify-content-between align-items-center {% if forloop.first %}selected{% endif %}"
+                data-layer-id="{{ layer.id }}"
+                onclick="selectLayer({{ layer.id }})"
+                style="cursor: pointer;">
+                <div class="d-flex align-items-center">
+                    <span class="badge me-2" style="background-color: {{ layer.color|default:'#6c757d' }}">{{ layer.groups.count }}</span>
+                    <span class="layer-name">{{ layer.name }}</span>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button
+                        class="btn btn-outline-secondary"
+                        hx-get="{% url 'vision:layer-form' %}?layer_id={{ layer.id }}"
+                        hx-target="#dialog"
+                        title="Edit"
+                        onclick="event.stopPropagation()"
+                    ><i class="bi bi-pencil"></i></button>
+                    <button
+                        class="btn btn-outline-secondary"
+                        hx-delete="{% url 'vision:layer-delete' %}?layer_id={{ layer.id }}"
+                        hx-target="#layers-list"
+                        hx-swap="innerHTML"
+                        hx-confirm="Delete layer '{{ layer.name }}'?"
+                        title="Delete"
+                        onclick="event.stopPropagation()"
+                    ><i class="bi bi-trash"></i></button>
+                </div>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <div class="p-3 text-center text-muted">
+        <i class="bi bi-layers display-6"></i>
+        <p class="mt-2 mb-0 small">No layers yet</p>
+    </div>
+{% endif %}

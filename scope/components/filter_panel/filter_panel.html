@@ -85,32 +85,23 @@
                 </div>
             </div>
 
-            <!-- Group Filter - Prominent Section -->
+            <!-- Group Filter -->
             <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <label class="form-label fw-semibold small mb-0">Groups</label>
-                    <span class="small">
-                        <a href="#" @click.prevent="selectAllGroups()">all</a>
-                        /
-                        <a href="#" @click.prevent="clearAllGroups()">none</a>
-                    </span>
-                </div>
-                <div class="group-tree border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                <label class="form-label fw-semibold small">By Group</label>
+                <div class="d-flex flex-wrap gap-2">
                     {% for group in groups %}
-                    <div class="form-check" style="padding-left: {{ group.depth|add:1 }}rem;">
+                    <div class="form-check form-check-inline">
                         <input class="form-check-input group-checkbox" type="checkbox"
                             id="group-{{ group.id }}" value="{{ group.id }}"
                             data-group-id="{{ group.id }}"
-                            data-depth="{{ group.depth }}"
                             :checked="filters.selected_groups.includes('{{ group.id }}')"
                             @change="toggleGroup('{{ group.id }}', $event.target.checked)">
-                        <label class="form-check-label small{% if group.depth == 0 %} fw-semibold{% endif %}" for="group-{{ group.id }}">
-                            {{ group.name }}
-                            <span class="text-muted">({{ group.project_count }})</span>
+                        <label class="form-check-label small" for="group-{{ group.id }}">
+                            {{ group.name }} (<span class="text-muted">{{ group.project_count }}</span>)
                         </label>
                     </div>
                     {% empty %}
-                    <div class="text-muted small text-center py-2">No groups</div>
+                    <span class="text-muted small">No groups</span>
                     {% endfor %}
                 </div>
                 <!-- Hidden select to store values for form compatibility -->
@@ -119,6 +110,26 @@
                     <option value="{{ group.id }}">{{ group.name }}</option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <!-- Tag Filter -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold small">By Tag</label>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for tag in tags %}
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input tag-checkbox" type="checkbox"
+                            id="tag-{{ tag.slug }}" value="{{ tag.name }}"
+                            :checked="filters.selected_tags.includes('{{ tag.name }}')"
+                            @change="toggleTag('{{ tag.name }}', $event.target.checked)">
+                        <label class="form-check-label small" for="tag-{{ tag.slug }}">
+                            {{ tag.name }} (<span class="text-muted">{{ tag.count }}</span>)
+                        </label>
+                    </div>
+                    {% empty %}
+                    <span class="text-muted small">No tags</span>
+                    {% endfor %}
+                </div>
             </div>
 
             <!-- Name Pattern -->
@@ -178,12 +189,14 @@ function filterPanel() {
             include_disconnected: {{ current_filter.include_disconnected|yesno:"true,false" }},
             include_external: {{ current_filter.include_external|yesno:"true,false" }},
             selected_groups: [],
+            selected_tags: [],
             name_pattern: "{{ current_filter.name_pattern }}",
         },
 
         init() {
-            // Select all groups by default
+            // Select all groups and tags by default
             this.selectAllGroups();
+            this.selectAllTags();
             // Apply filter on load
             this.applyFilter();
             // Listen for status updates from the main page
@@ -245,6 +258,25 @@ function filterPanel() {
                 this.filters.selected_groups.push(groupId);
             } else if (!checked && idx !== -1) {
                 this.filters.selected_groups.splice(idx, 1);
+            }
+        },
+
+        selectAllTags() {
+            this.filters.selected_tags = [{% for tag in tags %}'{{ tag.name }}'{% if not forloop.last %}, {% endif %}{% endfor %}];
+            document.querySelectorAll('.tag-checkbox').forEach(cb => cb.checked = true);
+        },
+
+        clearAllTags() {
+            this.filters.selected_tags = [];
+            document.querySelectorAll('.tag-checkbox').forEach(cb => cb.checked = false);
+        },
+
+        toggleTag(tagName, checked) {
+            const idx = this.filters.selected_tags.indexOf(tagName);
+            if (checked && idx === -1) {
+                this.filters.selected_tags.push(tagName);
+            } else if (!checked && idx !== -1) {
+                this.filters.selected_tags.splice(idx, 1);
             }
         },
 

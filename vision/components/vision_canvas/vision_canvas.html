@@ -65,42 +65,46 @@
                 }
             },
             {
-                selector: 'node:grabbed',
-                style: {
-                    'background-color': '#198754',
-                }
-            },
-            {
-                selector: 'node[?isLayer]',
-                style: {
-                    'background-color': 'data(color)',
-                    'background-opacity': 0.3,
-                    'border-width': 2,
-                    'border-color': 'data(color)',
-                    'label': 'data(label)',
-                    'text-valign': 'top',
-                    'text-margin-y': -10,
-                    'font-weight': 'bold',
-                    'font-size': '14px',
-                    'z-index': 1,
-                }
-            },
-            {
                 selector: 'node[?isGroup]',
                 style: {
-                    'background-color': 'data(color)',
-                    'background-opacity': 0.5,
-                    'border-width': 1,
-                    'border-color': '#6c757d',
+                    'shape': 'round-rectangle',
+                    'background-color': 'data(groupColor)',
+                    'background-opacity': 0.2,
+                    'border-width': 2,
+                    'border-color': 'data(groupColor)',
                     'label': 'data(label)',
                     'text-valign': 'top',
-                    'text-margin-y': -5,
+                    'text-halign': 'right',
+                    'font-size': '16px',
+                    'color': '#ffffff',
+                    'text-opacity': 0.9,
+                    'text-margin-y': 30,
+                    'text-margin-x': -50,
+                    'min-width': 100,
+                    'min-height': 60,
+                    'padding': 40,
                     'z-index': 5,
                 }
             },
             {
-                selector: ':parent',
+                selector: ':parent[?isGroup]',
                 style: {
+                    'shape': 'round-rectangle',
+                    'background-color': 'data(groupColor)',
+                    'background-opacity': 0.2,
+                    'border-width': 2,
+                    'border-color': 'data(groupColor)',
+                    'label': 'data(label)',
+                    'text-valign': 'top',
+                    'text-halign': 'right',
+                    'font-size': '16px',
+                    'color': '#ffffff',
+                    'text-opacity': 0.9,
+                    'text-margin-y': 30,
+                    'text-margin-x': -50,
+                    'width': 'auto',
+                    'height': 'auto',
+                    'padding': 40,
                     'z-index': 5,
                 }
             },
@@ -114,14 +118,6 @@
                 }
             },
             {
-                selector: 'node[?isLayer]:selected',
-                style: {
-                    'border-width': 4,
-                    'border-color': '#dc3545',
-                    'background-opacity': 0.6,
-                }
-            },
-            {
                 selector: 'node[?isGroup]:selected',
                 style: {
                     'border-width': 3,
@@ -130,17 +126,17 @@
                 }
             },
             {
-                selector: 'node[!inGroup]',
+                selector: 'node[!inGroup][!isGroup]',
                 style: {
                     'background-color': '#6c757d',
                     'border-width': 2,
-                    'border-style': 'dashed',
+                    'border-style': 'solid',
                     'border-color': '#adb5bd',
                     'opacity': 0.7,
                 }
             },
             {
-                selector: 'node[!inGroup]:selected',
+                selector: 'node[!inGroup][!isGroup]:selected',
                 style: {
                     'background-color': '#dc3545',
                     'border-width': 3,
@@ -214,7 +210,38 @@
     visionCy.on('grab', 'node', function(e) {
         tooltip.style.display = 'none';
     });
+
+    // Listen for zoom changes to update font sizes
+    visionCy.on('zoom', function() {
+        if (window.visionUpdateGroupFontSizes) {
+            window.visionUpdateGroupFontSizes();
+        }
+    });
 })();
+
+// Global function to update group font sizes based on zoom
+window.visionUpdateGroupFontSizes = function() {
+    if (!window.visionCy) return;
+    const zoom = window.visionCy.zoom();
+    // Scale inversely with zoom so text appears consistent on screen
+    const scale = Math.max(0.5, Math.min(2, 1 / zoom));
+    const groupFontSize = Math.round(16 * scale);
+    const groupMarginY = Math.round(30 * scale);
+
+    // Update each group node individually with x margin based on label length
+    window.visionCy.nodes('[?isGroup]').forEach(node => {
+        const label = node.data('label') || '';
+        // Approximate text width: chars * fontSize * 0.6, then apply 1.3x multiplier
+        const textWidth = label.length * groupFontSize * 0.6;
+        const groupMarginX = Math.round(textWidth * 2.2 / 2);
+
+        node.style({
+            'font-size': groupFontSize + 'px',
+            'text-margin-y': groupMarginY,
+            'text-margin-x': -groupMarginX,
+        });
+    });
+};
 
 function visionCanvasFit() {
     if (window.visionCy) {
@@ -242,18 +269,31 @@ function visionCanvasSave(layerId) {
 
     window.visionCy.nodes().forEach(node => {
         const pos = node.position();
-        const data = {
-            id: node.id(),
-            label: node.data('label'),
-            x: pos.x,
-            y: pos.y,
-            parent: node.data('parent') || null,
-        };
 
-        if (node.data('isLayer') || node.data('isGroup')) {
-            groups.push(data);
+        if (node.data('isGroup')) {
+            // Collect group data including members
+            const members = [];
+            node.children().forEach(child => {
+                if (!child.data('isGroup')) {
+                    members.push(child.id());
+                }
+            });
+            groups.push({
+                id: node.id(),
+                label: node.data('label'),
+                color: node.data('groupColor') || '',
+                x: pos.x,
+                y: pos.y,
+                members: members,
+            });
         } else {
-            nodes.push(data);
+            nodes.push({
+                id: node.id(),
+                label: node.data('label'),
+                x: pos.x,
+                y: pos.y,
+                parent: node.data('parent') || null,
+            });
         }
     });
 
@@ -278,13 +318,10 @@ function visionCanvasSave(layerId) {
 function visionCanvasToggleLabels() {
     if (window.visionCy) {
         window.visionLabelsVisible = !window.visionLabelsVisible;
-        const btn = document.getElementById('vision-toggle-labels-btn');
         if (window.visionLabelsVisible) {
             window.visionCy.style().selector('node').style('label', 'data(label)').update();
-            if (btn) btn.classList.add('active');
         } else {
             window.visionCy.style().selector('node').style('label', '').update();
-            if (btn) btn.classList.remove('active');
         }
     }
 }

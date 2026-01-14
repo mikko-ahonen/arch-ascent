@@ -1,0 +1,44 @@
+{% if vision.references.count > 0 %}
+    <ul class="list-group list-group-flush">
+        {% for ref in vision.references.all %}
+            <li class="list-group-item bg-dark d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    {% if ref.definition_type == 'informal' %}
+                        <i class="bi bi-chat-text text-muted me-2" title="Informal"></i>
+                    {% else %}
+                        <i class="bi bi-check-circle-fill text-success me-2" title="Formal"></i>
+                    {% endif %}
+                    <span>{{ ref.name }}</span>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button
+                        class="btn btn-outline-secondary"
+                        hx-post="{% url 'vision:layer-from-reference' %}?reference_id={{ ref.id }}"
+                        hx-target="#layers-list"
+                        hx-swap="innerHTML"
+                        title="Create layer from reference"
+                    ><i class="bi bi-layers"></i></button>
+                    <button
+                        class="btn btn-outline-secondary"
+                        hx-get="{% url 'vision:reference-form' %}?reference_id={{ ref.id }}"
+                        hx-target="#dialog"
+                        title="Edit"
+                    ><i class="bi bi-pencil"></i></button>
+                    <button
+                        class="btn btn-outline-secondary"
+                        hx-delete="{% url 'vision:reference-delete' %}?reference_id={{ ref.id }}"
+                        hx-target="#references-list"
+                        hx-swap="innerHTML"
+                        hx-confirm="Delete reference '{{ ref.name }}'?"
+                        title="Delete"
+                    ><i class="bi bi-trash"></i></button>
+                </div>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <div class="p-3 text-center text-muted">
+        <i class="bi bi-bookmark display-6"></i>
+        <p class="mt-2 mb-0 small">No references defined</p>
+    </div>
+{% endif %}

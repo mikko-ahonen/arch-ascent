@@ -189,8 +189,8 @@ function showTagPopupOnSelection(editor, event) {
     popupHtml += `
         </div>
         <div style="border-top: 1px solid #495057; margin-top: 8px; padding-top: 8px;">
-            <button type="button" class="btn btn-sm btn-outline-primary w-100 mb-2" onclick="event.preventDefault(); event.stopPropagation(); taggedEditorCreateNewReference('${editor.id}')">
-                <i class="bi bi-plus-lg me-1"></i>Create New Reference
+            <button type="button" class="btn btn-sm btn-outline-secondary w-100 mb-2" onclick="event.preventDefault(); event.stopPropagation(); taggedEditorCreateNewReference('${editor.id}')">
+                + New Reference
             </button>
             <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="event.preventDefault(); event.stopPropagation(); taggedEditorClosePopup('${editor.id}')">
                 Cancel
@@ -368,14 +368,34 @@ function taggedEditorCreateNewReference(editorId) {
                 'X-CSRFToken': getCsrfToken(),
             },
             body: `vision_id=${editor.visionId}&name=${encodeURIComponent(refName)}&color=${encodeURIComponent(color)}`,
-        }).catch(err => console.error('Failed to save reference:', err));
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Reference created:', data);
+            // Trigger refresh of references list
+            document.body.dispatchEvent(new CustomEvent('referencesUpdated'));
+        })
+        .catch(err => {
+            console.error('Failed to save reference:', err);
+            alert('Failed to create reference: ' + err.message);
+        });
     }
 }
 
 /**
- * Get CSRF token from cookie
+ * Get CSRF token from hidden input or cookie
  */
 function getCsrfToken() {
+    // First try hidden input (most reliable in forms)
+    const input = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (input) return input.value;
+
+    // Fallback to cookie
     const cookie = document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='));
     return cookie ? cookie.split('=')[1] : '';
 }

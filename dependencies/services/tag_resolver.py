@@ -42,6 +42,9 @@ def resolve_tag_expression(
         return _resolve_or(expression["or"], vision_id)
     elif "not" in expression:
         return _resolve_not(expression["not"], vision_id)
+    elif "tag" in expression:
+        # Simple {"tag": "tag_name"} format
+        return _get_projects_with_tag(expression["tag"])
 
     return set()
 

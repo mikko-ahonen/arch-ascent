@@ -26,7 +26,7 @@
           required
           autofocus
         >
-        <div class="form-text">A name for this set of components. Used in statements.</div>
+        <div class="form-text">A name for this reference.</div>
       </div>
 
       <div class="mb-3">
@@ -52,14 +52,6 @@
           rows="3"
           placeholder="e.g., components tagged with 'payment' and 'api'"
         >{{ reference.definition_display|default:'' }}</textarea>
-        <div class="form-text">
-          <strong>Examples:</strong><br>
-          <code>components tagged with 'payment'</code> |
-          <code>components tagged with 'api' and 'payment'</code> |
-          <code>components tagged with 'frontend' or 'backend'</code><br>
-          <code>groups on $$$layer-name$$$</code> |
-          <code>components: service-a, service-b</code>
-        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -77,26 +69,26 @@
   const indicator = document.getElementById('validation-indicator');
   let debounceTimer = null;
 
-  function setIndicator(status, message) {
+  function setIndicator(status) {
     if (status === 'valid') {
-      indicator.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i><span class="text-success">' + message + '</span>';
-    } else if (status === 'invalid') {
-      indicator.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i><span class="text-danger">Invalid</span>';
-    } else if (status === 'empty') {
-      indicator.innerHTML = '<span class="text-muted">Informal</span>';
+      indicator.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i><span class="text-success">Formal</span>';
+    } else if (status === 'informal') {
+      indicator.innerHTML = '<i class="bi bi-chat-text text-muted me-1"></i><span class="text-muted">Informal</span>';
     } else if (status === 'checking') {
-      indicator.innerHTML = '<span class="spinner-border spinner-border-sm text-muted me-1" role="status"></span><span class="text-muted">Checking...</span>';
+      indicator.innerHTML = '<span class="text-muted">...</span>';
+    } else {
+      indicator.innerHTML = '';
     }
   }
 
   function validateDefinition() {
     const text = textarea.value.trim();
     if (!text) {
-      setIndicator('empty', '');
+      setIndicator('');
       return;
     }
 
-    setIndicator('checking', '');
+    setIndicator('checking');
 
     fetch('{% url "vision:reference-validate" %}', {
       method: 'POST',
@@ -109,13 +101,13 @@
     .then(response => response.json())
     .then(data => {
       if (data.valid) {
-        setIndicator('valid', data.type_display || 'Formal');
+        setIndicator('valid');
       } else {
-        setIndicator('invalid', '');
+        setIndicator('informal');
       }
     })
     .catch(() => {
-      setIndicator('invalid', '');
+      setIndicator('informal');
     });
   }
 
@@ -128,8 +120,6 @@
   // Initial validation on load
   if (textarea.value.trim()) {
     validateDefinition();
-  } else {
-    setIndicator('empty', '');
   }
 })();
 </script>

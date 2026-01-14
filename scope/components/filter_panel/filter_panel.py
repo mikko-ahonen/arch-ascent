@@ -47,6 +47,11 @@ class FilterPanel(Component):
         internal_count = Project.objects.filter(internal=True).count()
         external_count = Project.objects.filter(internal=False).count()
 
+        # Get all tags with counts
+        from taggit.models import Tag
+        from django.db.models import Count
+        tags = Tag.objects.annotate(count=Count('taggit_taggeditem_items')).order_by('name')
+
         # Get all groups with project counts, organized hierarchically
         import re
         from django.db.models import Count
@@ -144,6 +149,7 @@ class FilterPanel(Component):
             'status_colors': STATUS_COLORS,
             # Filter options
             'groups': groups,
+            'tags': tags,
             # Current filter state
             'current_filter': current_filter,
             # UI options
@@ -187,6 +193,15 @@ class FilterPanel(Component):
             )
         else:
             queryset = queryset.none()
+
+        # Filter by tags - if tags selected, show projects with those tags or no tags
+        selected_tags = filter_config.get('selected_tags', [])
+        if selected_tags:
+            from django.db.models import Q
+            # Include projects with selected tags OR projects with no tags
+            queryset = queryset.filter(
+                Q(tags__name__in=selected_tags) | Q(tags__isnull=True)
+            )
 
         # Filter by name pattern
         if filter_config['name_pattern']:
@@ -246,6 +261,7 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
         'include_disconnected': data.get('include_disconnected', False),
         'include_external': data.get('include_external', False),
         'selected_groups': data.get('selected_groups', []),
+        'selected_tags': data.get('selected_tags', []),
         'name_pattern': data.get('name_pattern', ''),
     }
 
@@ -285,6 +301,14 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
         )
     else:
         queryset = queryset.none()
+
+    # Filter by tags - if tags selected, show projects with those tags or no tags
+    selected_tags = filter_config.get('selected_tags', [])
+    if selected_tags:
+        from django.db.models import Q
+        queryset = queryset.filter(
+            Q(tags__name__in=selected_tags) | Q(tags__isnull=True)
+        )
 
     # Filter by name pattern
     if filter_config['name_pattern']:

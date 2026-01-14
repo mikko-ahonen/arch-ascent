@@ -165,6 +165,20 @@ def vision_detail(request, vision_id, version_id=None):
     })
 
 
+LAYER_COLORS = [
+    '#0d6efd',  # Blue
+    '#198754',  # Green
+    '#dc3545',  # Red
+    '#fd7e14',  # Orange
+    '#6f42c1',  # Purple
+    '#20c997',  # Teal
+    '#ffc107',  # Yellow
+    '#e83e8c',  # Pink
+    '#17a2b8',  # Cyan
+    '#6c757d',  # Gray
+]
+
+
 @require_http_methods(["GET", "POST"])
 def layer_form(request):
     """Handle layer form modal - GET for form, POST to save."""
@@ -175,10 +189,17 @@ def layer_form(request):
         vision = get_object_or_404(Vision, pk=vision_id) if vision_id else None
         layer = get_object_or_404(Layer, pk=layer_id) if layer_id else None
 
+        # Determine default color for new layers (round-robin)
+        default_color = '#6c757d'
+        if vision and not layer:
+            layer_count = vision.layers.count()
+            default_color = LAYER_COLORS[layer_count % len(LAYER_COLORS)]
+
         context = {
             'vision': vision or (layer.vision if layer else None),
             'layer': layer,
             'layer_types': Layer.LAYER_TYPES,
+            'default_color': default_color,
         }
         html = render_to_string(
             'vision/components/layer_form/layer_form.html',
@@ -239,11 +260,15 @@ def layer_delete(request):
     if layer_id:
         layer = Layer.objects.filter(pk=layer_id).first()
         if layer:
-            vision_id = layer.vision.id
+            vision = layer.vision
             layer.delete()
-            response = HttpResponse('')
-            response['HX-Redirect'] = f'/vision/{vision_id}/'
-            return response
+            # Return updated list
+            html = render_to_string(
+                'vision/components/layers_list.html',
+                {'vision': vision},
+                request=request
+            )
+            return HttpResponse(html)
     return HttpResponse('')
 
 
@@ -351,6 +376,20 @@ def statements_list(request):
     return HttpResponse(html)
 
 
+@require_http_methods(["GET"])
+def references_list(request):
+    """Return the references list HTML fragment."""
+    vision_id = request.GET.get('vision_id')
+    vision = get_object_or_404(Vision, pk=vision_id)
+
+    html = render_to_string(
+        'vision/components/references_list.html',
+        {'vision': vision},
+        request=request
+    )
+    return HttpResponse(html)
+
+
 @require_http_methods(["DELETE"])
 def statement_delete(request):
     """Delete a statement."""
@@ -358,11 +397,15 @@ def statement_delete(request):
     if statement_id:
         statement = Statement.objects.filter(pk=statement_id).first()
         if statement:
-            vision_id = statement.vision.id
+            vision = statement.vision
             statement.delete()
-            response = HttpResponse('')
-            response['HX-Redirect'] = f'/vision/{vision_id}/'
-            return response
+            # Return updated list
+            html = render_to_string(
+                'vision/components/statements_list.html',
+                {'vision': vision},
+                request=request
+            )
+            return HttpResponse(html)
     return HttpResponse('')
 
 
@@ -616,12 +659,78 @@ def reference_delete(request):
     if reference_id:
         reference = Reference.objects.filter(pk=reference_id).first()
         if reference:
-            vision_id = reference.vision.id
+            vision = reference.vision
             reference.delete()
-            response = HttpResponse('')
-            response['HX-Redirect'] = f'/vision/{vision_id}/'
-            return response
+            # Return updated list
+            html = render_to_string(
+                'vision/components/references_list.html',
+                {'vision': vision},
+                request=request
+            )
+            return HttpResponse(html)
     return HttpResponse('')
+
+
+@require_http_methods(["POST"])
+def layer_from_reference(request):
+    """Create a layer from a reference's members."""
+    from dependencies.models import Project
+    from vision.services.tag_resolver import resolve_reference
+
+    reference_id = request.GET.get('reference_id')
+    if not reference_id:
+        return HttpResponse('Reference ID required', status=400)
+
+    reference = get_object_or_404(Reference, pk=reference_id)
+    vision = reference.vision
+
+    # Create a new layer with the reference name
+    base_key = reference.name.lower().replace(' ', '-')
+    layer_key = base_key
+    layer_count = vision.layers.count()
+
+    # Ensure unique key
+    counter = 1
+    while vision.layers.filter(key=layer_key).exists():
+        counter += 1
+        layer_key = f"{base_key}-{counter}"
+
+    # Get a color for the new layer (round-robin)
+    layer = Layer.objects.create(
+        vision=vision,
+        key=layer_key,
+        name=reference.name,
+        layer_type='freeform',
+        color=LAYER_COLORS[layer_count % len(LAYER_COLORS)],
+        order=layer_count,
+    )
+
+    # Create a group in the layer with the same name
+    group = Group.objects.create(
+        layer=layer,
+        key=layer_key,
+        name=reference.name,
+        color=layer.color,
+    )
+
+    # Resolve the reference to get member project keys
+    project_keys = resolve_reference(reference)
+    if project_keys:
+        projects = Project.objects.filter(key__in=project_keys)
+        for project in projects:
+            GroupMembership.objects.create(
+                group=group,
+                project=project,
+                membership_type='explicit',
+            )
+
+    # Return updated layers list
+    html = render_to_string(
+        'vision/components/layers_list.html',
+        {'vision': vision},
+        request=request
+    )
+    return HttpResponse(html)
 
 
 # =============================================================================

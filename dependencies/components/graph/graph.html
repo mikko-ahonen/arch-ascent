@@ -1,7 +1,7 @@
 <div id="graph-container" class="card">
     <div class="card-header">
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h5 class="mb-0">Project Dependencies</h5>
+            <h5 class="mb-0">Component Dependencies</h5>
             <div class="btn-group btn-group-sm">
             <button id="toggle-labels-btn" class="btn btn-outline-secondary active" onclick="graphToggleLabels()">Labels</button>
             <button id="toggle-transitive-btn" class="btn btn-outline-secondary active" onclick="graphToggleTransitive()">Transitive</button>
@@ -567,7 +567,7 @@ window.addEventListener('filter-applied', function(e) {
     // Update status
     const visibleNodes = window.cyGraph.nodes(':visible').filter(n => !n.isParent()).length;
     const visibleEdges = window.cyGraph.edges(':visible').length;
-    status.textContent = `Showing ${visibleNodes} projects, ${visibleEdges} edges`;
+    status.textContent = `Showing ${visibleNodes} components, ${visibleEdges} edges`;
     status.classList.remove('text-muted');
     status.classList.add('text-primary');
 

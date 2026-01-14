@@ -68,32 +68,24 @@ class VisionCanvas(component.Component):
         # Get all projects
         all_projects = {p.key: p for p in Project.objects.all()}
 
-        # Get layers to display
-        layers = vision.layers.all()
+        # Get layers to display (prefetch groups and their memberships)
+        layers = vision.layers.prefetch_related(
+            'groups',
+            'groups__memberships',
+            'groups__memberships__project'
+        ).all()
         if visible_layers is not None:
             layers = layers.filter(id__in=visible_layers)
 
-        # Add layer nodes and their groups/projects
+        # Add groups and their projects (layers are just filters, not nodes)
         for layer in layers:
-            layer_node = {
-                "data": {
-                    "id": f"layer-{layer.id}",
-                    "label": layer.name,
-                    "isLayer": True,
-                    "color": layer.color or "#6c757d",
-                }
-            }
-            nodes.append(layer_node)
-
-            # Add groups within the layer
             for group in layer.groups.all():
                 group_node = {
                     "data": {
                         "id": f"group-{group.id}",
                         "label": group.name,
-                        "parent": f"layer-{layer.id}",
                         "isGroup": True,
-                        "color": group.color or "#495057",
+                        "groupColor": group.color or layer.color or "#6c757d",
                     }
                 }
                 if group.position_x is not None and group.position_y is not None:
@@ -134,6 +126,9 @@ class VisionCanvas(component.Component):
                     nodes.append(project_node)
 
         # Add remaining projects that aren't in any visible group
+        # Get the first visible layer for position lookups
+        first_layer = layers.first() if layers else None
+
         for key, project in all_projects.items():
             if key not in added_project_keys:
                 added_project_keys.add(key)
@@ -142,9 +137,19 @@ class VisionCanvas(component.Component):
                         "id": project.key,
                         "label": project.name,
                         "description": project.description,
-                        "inGroup": False,
                     }
                 }
+                # Check for saved position in the current layer
+                if first_layer:
+                    position = LayerNodePosition.objects.filter(
+                        layer=first_layer, project=project
+                    ).first()
+                    if position and position.position_x is not None:
+                        project_node["position"] = {
+                            "x": position.position_x,
+                            "y": position.position_y,
+                        }
+                        has_positions = True
                 nodes.append(project_node)
 
         # Add dependencies between all projects
@@ -200,9 +205,8 @@ class VisionCanvas(component.Component):
         # Get all projects for dependency edges
         all_projects = {p.key: p for p in Project.objects.all()}
 
-        # Build node positions lookup from snapshot
-        snapshot_positions = {}  # {project_key: {layer_id: {x, y}}}
-        snapshot_groups = {}  # {project_key: group_id}
+        # Build node positions lookup from snapshot (collect all positions first)
+        snapshot_positions = {}  # {project_key: {x, y}}
 
         for layer_data in layers_data:
             layer_id = layer_data.get('id')
@@ -211,27 +215,25 @@ class VisionCanvas(component.Component):
             if visible_layers is not None and layer_id not in visible_layers:
                 continue
 
-            # Add layer node
-            layer_node = {
-                "data": {
-                    "id": f"layer-{layer_id}",
-                    "label": layer_data.get('name', f'Layer {layer_id}'),
-                    "isLayer": True,
-                    "color": layer_data.get('color', '#6c757d'),
-                }
-            }
-            nodes.append(layer_node)
+            # Collect positions from this layer's snapshot
+            for pos_data in layer_data.get('node_positions', []):
+                project_key = pos_data.get('project__key')
+                if project_key and project_key not in snapshot_positions:
+                    snapshot_positions[project_key] = {
+                        'x': pos_data['position_x'],
+                        'y': pos_data['position_y'],
+                    }
 
-            # Add groups from snapshot
+            # Add groups from snapshot (layers are just filters, not nodes)
+            layer_color = layer_data.get('color', '#6c757d')
             for group_data in layer_data.get('groups', []):
                 group_id = group_data.get('id')
                 group_node = {
                     "data": {
                         "id": f"group-{group_id}",
                         "label": group_data.get('name', f'Group {group_id}'),
-                        "parent": f"layer-{layer_id}",
                         "isGroup": True,
-                        "color": group_data.get('color', '#495057'),
+                        "groupColor": group_data.get('color') or layer_color,
                     }
                 }
                 if group_data.get('position_x') is not None:
@@ -261,21 +263,11 @@ class VisionCanvas(component.Component):
                             "inGroup": True,
                         }
                     }
+                    # Apply position from snapshot if available
+                    if member_key in snapshot_positions:
+                        project_node["position"] = snapshot_positions[member_key]
+                        has_positions = True
                     nodes.append(project_node)
-
-            # Apply node positions from snapshot
-            for pos_data in layer_data.get('node_positions', []):
-                project_key = pos_data.get('project__key')
-                if project_key in added_project_keys:
-                    # Find and update the node position
-                    for node in nodes:
-                        if node['data'].get('id') == project_key:
-                            node['position'] = {
-                                'x': pos_data['position_x'],
-                                'y': pos_data['position_y'],
-                            }
-                            has_positions = True
-                            break
 
         # Add remaining projects not in any group
         for key, project in all_projects.items():
@@ -286,9 +278,12 @@ class VisionCanvas(component.Component):
                         "id": project.key,
                         "label": project.name,
                         "description": project.description,
-                        "inGroup": False,
                     }
                 }
+                # Apply position from snapshot if available
+                if key in snapshot_positions:
+                    project_node["position"] = snapshot_positions[key]
+                    has_positions = True
                 nodes.append(project_node)
 
         # Add dependency edges (same as get_vision_graph_data)
@@ -376,14 +371,49 @@ class VisionCanvas(component.Component):
             if layer_id:
                 layer = Layer.objects.filter(pk=layer_id, vision=vision).first()
 
-            # Update group positions
+            # Track mapping from temp IDs to real group IDs
+            group_id_map = {}
+
+            # Update or create groups
             for group_data in groups:
-                group_id = group_data.get('id', '').replace('group-', '')
-                if group_id.isdigit():
-                    Group.objects.filter(pk=int(group_id)).update(
-                        position_x=group_data.get('x'),
-                        position_y=group_data.get('y'),
-                    )
+                group_id_str = group_data.get('id', '')
+                label = group_data.get('label', 'Unnamed Group')
+                color = group_data.get('color', '')
+                pos_x = group_data.get('x')
+                pos_y = group_data.get('y')
+                members = group_data.get('members', [])
+
+                if group_id_str.startswith('new-group-') or group_id_str.startswith('auto-group-'):
+                    # Create new group
+                    if layer:
+                        key = label.lower().replace(' ', '-')
+                        group = Group.objects.create(
+                            layer=layer,
+                            key=key,
+                            name=label,
+                            color=color,
+                            position_x=pos_x,
+                            position_y=pos_y,
+                        )
+                        group_id_map[group_id_str] = group
+                        # Add members to group
+                        for member_key in members:
+                            project = Project.objects.filter(key=member_key).first()
+                            if project:
+                                GroupMembership.objects.get_or_create(
+                                    group=group,
+                                    project=project,
+                                    defaults={'membership_type': 'explicit'}
+                                )
+                elif group_id_str.startswith('group-'):
+                    # Update existing group
+                    real_id = group_id_str.replace('group-', '')
+                    if real_id.isdigit():
+                        Group.objects.filter(pk=int(real_id)).update(
+                            color=color,
+                            position_x=pos_x,
+                            position_y=pos_y,
+                        )
 
             # Update project positions in the current layer
             for node_data in nodes:

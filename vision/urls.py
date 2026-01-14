@@ -22,6 +22,7 @@ urlpatterns = [
     # Layer routes
     path('htmx/layer-form/', views.layer_form, name='layer-form'),
     path('htmx/layer-delete/', views.layer_delete, name='layer-delete'),
+    path('htmx/layer-from-reference/', views.layer_from_reference, name='layer-from-reference'),
 
     # Statement routes
     path('htmx/statement-form/', views.statement_form, name='statement-form'),
@@ -33,6 +34,7 @@ urlpatterns = [
     path('htmx/reference-form/', views.reference_form, name='reference-form'),
     path('htmx/reference-delete/', views.reference_delete, name='reference-delete'),
     path('htmx/reference-validate/', views.reference_validate, name='reference-validate'),
+    path('htmx/references-list/', views.references_list, name='references-list'),
 
     # Version routes
     path('htmx/version-form/', views.version_form, name='version-form'),
