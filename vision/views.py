@@ -9,6 +9,123 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from .models import Vision, Layer, Statement, Reference, VisionVersion, Group, GroupMembership
 from dependencies.services.reference_parser import analyze_reference_definition
+import re
+
+
+def _analyze_statement(natural_language: str, tags: list) -> tuple:
+    """
+    Analyze a statement to deduce type and build formal expression.
+
+    Returns:
+        (statement_type, formal_expression, status)
+    """
+    text_lower = natural_language.lower()
+
+    # Extract unique reference names from tags
+    ref_names = []
+    for tag in tags:
+        if isinstance(tag, dict) and 'tag' in tag:
+            ref_name = tag['tag']
+            if ref_name not in ref_names:
+                ref_names.append(ref_name)
+
+    # Deduce statement type from keywords
+    statement_type = 'existence'  # default
+
+    # Containment patterns
+    containment_patterns = [
+        r'must be in', r'should be in', r'contained in', r'belongs to',
+        r'part of', r'within', r'inside', r'member of'
+    ]
+    # Exclusion patterns
+    exclusion_patterns = [
+        r'must not depend', r'should not depend', r'cannot depend',
+        r'must not access', r'should not access', r'cannot access',
+        r'must not call', r'should not call', r'cannot call',
+        r'must not use', r'should not use', r'cannot use',
+        r'no dependency', r'no dependencies'
+    ]
+    # Cardinality patterns
+    cardinality_patterns = [
+        r'at least \d+', r'at most \d+', r'exactly \d+',
+        r'no more than \d+', r'no fewer than \d+',
+        r'maximum of \d+', r'minimum of \d+'
+    ]
+
+    # Check patterns in order of specificity
+    for pattern in exclusion_patterns:
+        if re.search(pattern, text_lower):
+            statement_type = 'exclusion'
+            break
+    else:
+        for pattern in containment_patterns:
+            if re.search(pattern, text_lower):
+                statement_type = 'containment'
+                break
+        else:
+            for pattern in cardinality_patterns:
+                if re.search(pattern, text_lower):
+                    statement_type = 'cardinality'
+                    break
+
+    # Build formal expression based on type and tagged references
+    formal_expression = {
+        'tags': tags,
+        'type': statement_type,
+    }
+    status = 'informal'
+
+    if len(ref_names) == 0:
+        # No references tagged - informal only
+        status = 'informal'
+    elif statement_type == 'existence':
+        # Existence needs at least 1 reference
+        if len(ref_names) >= 1:
+            formal_expression['reference'] = ref_names[0]
+            status = 'formal'
+    elif statement_type == 'containment':
+        # Containment needs 2 references: subject and container
+        if len(ref_names) >= 2:
+            formal_expression['subject'] = ref_names[0]
+            formal_expression['container'] = ref_names[1]
+            status = 'formal'
+        elif len(ref_names) == 1:
+            formal_expression['subject'] = ref_names[0]
+            status = 'semi_formal'
+    elif statement_type == 'exclusion':
+        # Exclusion needs 2 references: subject and excluded
+        if len(ref_names) >= 2:
+            formal_expression['subject'] = ref_names[0]
+            formal_expression['excluded'] = ref_names[1]
+            status = 'formal'
+        elif len(ref_names) == 1:
+            formal_expression['subject'] = ref_names[0]
+            status = 'semi_formal'
+    elif statement_type == 'cardinality':
+        # Cardinality needs 1 reference + number
+        if len(ref_names) >= 1:
+            formal_expression['reference'] = ref_names[0]
+            # Try to extract number and operator
+            match = re.search(r'(at least|at most|exactly|no more than|maximum of|minimum of)\s+(\d+)', text_lower)
+            if match:
+                operator_text = match.group(1)
+                value = int(match.group(2))
+                operator_map = {
+                    'at least': '>=',
+                    'minimum of': '>=',
+                    'no fewer than': '>=',
+                    'at most': '<=',
+                    'maximum of': '<=',
+                    'no more than': '<=',
+                    'exactly': '==',
+                }
+                formal_expression['operator'] = operator_map.get(operator_text, '>=')
+                formal_expression['value'] = value
+                status = 'formal'
+            else:
+                status = 'semi_formal'
+
+    return statement_type, formal_expression, status
 
 
 def vision_home(request):
@@ -290,8 +407,24 @@ def statement_form(request):
 
         # Parse existing tags from formal_expression if editing
         tags = []
+        seen_tags = set()  # Track (start, end, tag) to deduplicate
         if statement and statement.formal_expression:
-            tags = statement.formal_expression.get('tags', [])
+            raw_tags = statement.formal_expression.get('tags', [])
+            # Ensure each tag has required fields and deduplicate
+            for tag in raw_tags:
+                if isinstance(tag, dict) and 'start' in tag and 'end' in tag and 'tag' in tag:
+                    # Create dedup key from position and tag name
+                    tag_key = (tag['start'], tag['end'], tag['tag'])
+                    if tag_key in seen_tags:
+                        continue  # Skip duplicate
+                    seen_tags.add(tag_key)
+                    tags.append({
+                        'id': tag.get('id', f"tag-{len(tags)}"),
+                        'start': tag['start'],
+                        'end': tag['end'],
+                        'tag': tag['tag'],
+                        'color': tag.get('color', '#3498db'),
+                    })
 
         context = {
             'vision': vision,
@@ -311,15 +444,22 @@ def statement_form(request):
     # POST - create or update statement
     statement_id = request.POST.get('statement_id')
     vision_id = request.POST.get('vision_id')
-    statement_type = request.POST.get('statement_type', 'existence')
-    status = request.POST.get('status', 'informal')
 
     # Get the tagged editor data
     editor_data = request.POST.get('statement-editor', '{}')
     try:
         editor_state = json.loads(editor_data)
         natural_language = editor_state.get('text', '')
-        tags = editor_state.get('tags', [])
+        raw_tags = editor_state.get('tags', [])
+        # Deduplicate tags before saving
+        seen_tags = set()
+        tags = []
+        for tag in raw_tags:
+            if isinstance(tag, dict) and 'start' in tag and 'end' in tag and 'tag' in tag:
+                tag_key = (tag['start'], tag['end'], tag['tag'])
+                if tag_key not in seen_tags:
+                    seen_tags.add(tag_key)
+                    tags.append(tag)
     except json.JSONDecodeError:
         natural_language = editor_data
         tags = []
@@ -330,11 +470,8 @@ def statement_form(request):
             status=400
         )
 
-    # Build formal expression from tags
-    formal_expression = {
-        'tags': tags,
-        'type': statement_type,
-    }
+    # Auto-deduce statement type and build formal expression
+    statement_type, formal_expression, status = _analyze_statement(natural_language, tags)
 
     if statement_id:
         # Update existing

@@ -468,7 +468,10 @@ function renderTaggedContent(editor) {
     editor.content.innerHTML = result || '';
 
     // Position tag labels (for multi-line support)
-    positionTagLabels(editor);
+    // Use setTimeout to wait for modal animation to complete
+    setTimeout(() => {
+        positionTagLabels(editor);
+    }, 300);
 }
 
 /**
@@ -578,6 +581,14 @@ function positionTagLabels(editor) {
             rects = Array.from(range.getClientRects());
         } else {
             rects = Array.from(span.getClientRects());
+        }
+
+        // Fallback: if no rects from range, try getBoundingClientRect
+        if (rects.length === 0) {
+            const boundingRect = span.getBoundingClientRect();
+            if (boundingRect.width > 0 && boundingRect.height > 0) {
+                rects = [boundingRect];
+            }
         }
 
         if (rects.length === 0) return;
@@ -759,6 +770,19 @@ function taggedEditorApplyTag(editorId, tagName, tagColor) {
         setTimeout(() => {
             editor.container.style.outline = '';
         }, 300);
+        return;
+    }
+
+    // Check if a tag with the same position and name already exists (prevent duplicates)
+    const duplicateExists = editor.tags.some(existingTag =>
+        existingTag.start === range.start &&
+        existingTag.end === range.end &&
+        existingTag.tag === tagName
+    );
+
+    if (duplicateExists) {
+        // Already tagged - just clear selection and return
+        selection.removeAllRanges();
         return;
     }
 

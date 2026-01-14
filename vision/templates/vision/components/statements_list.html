@@ -4,12 +4,24 @@
             <li class="list-group-item bg-dark">
                 <div class="d-flex align-items-start">
                     {% if stmt.status == 'formal' %}
-                        <i class="bi bi-check-circle-fill text-success me-2 mt-1" title="Formal"></i>
+                        <i class="bi bi-check-circle-fill text-success me-2 mt-1" title="Formal - can be evaluated"></i>
+                    {% elif stmt.status == 'semi_formal' %}
+                        <i class="bi bi-exclamation-circle-fill text-warning me-2 mt-1" title="Semi-formal - needs more references"></i>
                     {% else %}
-                        <i class="bi bi-chat-text text-muted me-2 mt-1" title="Informal"></i>
+                        <i class="bi bi-chat-text text-muted me-2 mt-1" title="Informal - tag references to formalize"></i>
                     {% endif %}
                     <div class="flex-grow-1">
                         <small>{{ stmt.natural_language }}</small>
+                        <div class="mt-1">
+                            <span class="badge bg-secondary small">{{ stmt.get_statement_type_display }}</span>
+                            {% if stmt.status == 'formal' and stmt.is_satisfied is not None %}
+                                {% if stmt.is_satisfied %}
+                                    <span class="badge bg-success small"><i class="bi bi-check-lg"></i> Satisfied</span>
+                                {% else %}
+                                    <span class="badge bg-danger small"><i class="bi bi-x-lg"></i> Violated</span>
+                                {% endif %}
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="btn-group btn-group-sm ms-2">
                         <button

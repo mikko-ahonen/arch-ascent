@@ -87,8 +87,15 @@
 
             <!-- Group Filter -->
             <div class="mb-3">
-                <label class="form-label fw-semibold small">By Group</label>
-                <div class="d-flex flex-wrap gap-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <label class="form-label fw-semibold small mb-0">By Group</label>
+                    <span class="small">
+                        <a href="#" @click.prevent="selectAllGroups()">all</a>
+                        <span class="text-muted">|</span>
+                        <a href="#" @click.prevent="clearAllGroups()">none</a>
+                    </span>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-1">
                     {% for group in groups %}
                     <div class="form-check form-check-inline">
                         <input class="form-check-input group-checkbox" type="checkbox"
@@ -114,8 +121,15 @@
 
             <!-- Tag Filter -->
             <div class="mb-3">
-                <label class="form-label fw-semibold small">By Tag</label>
-                <div class="d-flex flex-wrap gap-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <label class="form-label fw-semibold small mb-0">By Tag</label>
+                    <span class="small">
+                        <a href="#" @click.prevent="selectAllTags()">all</a>
+                        <span class="text-muted">|</span>
+                        <a href="#" @click.prevent="clearAllTags()">none</a>
+                    </span>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-1">
                     {% for tag in tags %}
                     <div class="form-check form-check-inline">
                         <input class="form-check-input tag-checkbox" type="checkbox"

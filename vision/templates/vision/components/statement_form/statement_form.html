@@ -33,19 +33,7 @@
       <div class="mb-3">
         <div class="row">
           <div class="col-4">
-            <label class="form-label text-muted small">Validation</label>
-            <div class="form-control-plaintext">
-              {% if statement.is_satisfied is True %}
-                <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Satisfied</span>
-              {% elif statement.is_satisfied is False %}
-                <span class="badge bg-danger"><i class="bi bi-x-lg me-1"></i>Violated</span>
-              {% else %}
-                <span class="badge bg-secondary"><i class="bi bi-question-lg me-1"></i>Not evaluated</span>
-              {% endif %}
-            </div>
-          </div>
-          <div class="col-4">
-            <label class="form-label text-muted small">Inferred Type</label>
+            <label class="form-label text-muted small">Deduced Type</label>
             <div class="form-control-plaintext">
               {% if statement.statement_type %}
                 <span class="badge bg-info">{{ statement.get_statement_type_display }}</span>
@@ -57,12 +45,51 @@
           <div class="col-4">
             <label class="form-label text-muted small">Formalization</label>
             <div class="form-control-plaintext">
-              <span class="badge {% if statement.status == 'formal' %}bg-success{% elif statement.status == 'semi_formal' %}bg-warning{% else %}bg-secondary{% endif %}">
-                {{ statement.get_status_display }}
-              </span>
+              {% if statement.status == 'formal' %}
+                <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Formal</span>
+              {% elif statement.status == 'semi_formal' %}
+                <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-lg me-1"></i>Semi-Formal</span>
+              {% else %}
+                <span class="badge bg-secondary"><i class="bi bi-chat-text me-1"></i>Informal</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-4">
+            <label class="form-label text-muted small">Evaluation</label>
+            <div class="form-control-plaintext">
+              {% if statement.status == 'formal' %}
+                {% if statement.is_satisfied is True %}
+                  <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Satisfied</span>
+                {% elif statement.is_satisfied is False %}
+                  <span class="badge bg-danger"><i class="bi bi-x-lg me-1"></i>Violated</span>
+                {% else %}
+                  <span class="badge bg-secondary"><i class="bi bi-question-lg me-1"></i>Not evaluated</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted small">Requires formal status</span>
+              {% endif %}
             </div>
           </div>
         </div>
+        {% if statement.status == 'semi_formal' %}
+        <div class="alert alert-warning py-2 mt-2 small">
+          <i class="bi bi-info-circle me-1"></i>
+          {% if statement.statement_type == 'containment' %}
+            Tag a second reference for the container/group.
+          {% elif statement.statement_type == 'exclusion' %}
+            Tag a second reference for the excluded target.
+          {% elif statement.statement_type == 'cardinality' %}
+            Include a number (e.g., "at least 3", "exactly 1").
+          {% else %}
+            Tag references to make this statement evaluable.
+          {% endif %}
+        </div>
+        {% elif statement.status == 'informal' %}
+        <div class="alert alert-secondary py-2 mt-2 small">
+          <i class="bi bi-info-circle me-1"></i>
+          Select text and tag it with references to formalize this statement.
+        </div>
+        {% endif %}
       </div>
       {% endif %}
     </div>

@@ -51,7 +51,13 @@
 (function() {
     // Initialize this editor instance
     const editorId = '{{ editor_id }}';
-    const initialTags = {{ tags|safe }};
+    let initialTags = [];
+    try {
+        initialTags = {{ tags|safe }};
+        if (!Array.isArray(initialTags)) initialTags = [];
+    } catch(e) {
+        console.error('Failed to parse initial tags:', e);
+    }
     const availableTags = {{ available_tags_json|safe }};
     const visionId = {{ vision_id|default:"null" }};
 
@@ -61,10 +67,19 @@
     };
 
     // Initialize - JS is loaded globally in base.html
-    if (typeof initTaggedEditor === 'function') {
-        initTaggedEditor(editorId, initialTags, options);
+    // Use setTimeout to ensure DOM is ready after HTMX swap
+    const doInit = function() {
+        if (typeof initTaggedEditor === 'function') {
+            initTaggedEditor(editorId, initialTags, options);
+        } else {
+            console.error('initTaggedEditor not available - ensure tagged_editor.js is loaded');
+        }
+    };
+
+    if (document.readyState === 'complete') {
+        doInit();
     } else {
-        console.error('initTaggedEditor not available - ensure tagged_editor.js is loaded');
+        setTimeout(doInit, 0);
     }
 })();
 </script>

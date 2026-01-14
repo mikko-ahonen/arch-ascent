@@ -242,6 +242,25 @@
             minHeight: 30,
         });
     }
+
+    // Keyboard shortcuts for selection
+    document.addEventListener('keydown', function(e) {
+        // Ignore if typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+            return;
+        }
+
+        if (e.key === 'g' || e.key === 'G') {
+            // Select all groups
+            visionCy.nodes('[?isGroup]').select();
+        } else if (e.key === 'n' || e.key === 'N') {
+            // Select all nodes (non-groups)
+            visionCy.nodes('[!isGroup]').select();
+        } else if (e.key === 'Escape') {
+            // Deselect all
+            visionCy.elements().unselect();
+        }
+    });
 })();
 
 // Global function to update group font sizes based on zoom
