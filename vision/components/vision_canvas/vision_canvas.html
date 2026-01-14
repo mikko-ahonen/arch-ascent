@@ -5,6 +5,7 @@
 </div>
 
 <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-node-resize/cytoscape-node-resize.js"></script>
 <script>
 (function() {
     const visionGraphData = {{ graph_data|safe }};
@@ -217,6 +218,30 @@
             window.visionUpdateGroupFontSizes();
         }
     });
+
+    // Apply saved dimensions to groups
+    visionCy.nodes('[?isGroup]').forEach(node => {
+        const w = node.data('groupWidth');
+        const h = node.data('groupHeight');
+        if (w && h) {
+            node.style({
+                'width': w + 'px',
+                'height': h + 'px',
+                'min-width': w + 'px',
+                'min-height': h + 'px',
+            });
+        }
+    });
+
+    // Initialize node resize extension
+    if (visionCy.nodeResize) {
+        visionCy.nodeResize({
+            padding: 5,
+            undoable: false,
+            minWidth: 30,
+            minHeight: 30,
+        });
+    }
 })();
 
 // Global function to update group font sizes based on zoom
@@ -261,6 +286,42 @@ function visionCanvasZoomOut() {
     }
 }
 
+function visionCanvasExpandGroup(factor = 1.5) {
+    if (!window.visionCy) return;
+
+    // Get selected group nodes
+    const selectedGroups = window.visionCy.nodes('[?isGroup]:selected');
+    if (selectedGroups.length === 0) {
+        alert('Please select a group first');
+        return;
+    }
+
+    selectedGroups.forEach(group => {
+        const children = group.children();
+        if (children.length === 0) return;
+
+        // Get group center
+        const bb = group.boundingBox();
+        const centerX = (bb.x1 + bb.x2) / 2;
+        const centerY = (bb.y1 + bb.y2) / 2;
+
+        // Scale each child's position from center
+        children.forEach(child => {
+            const pos = child.position();
+            const dx = pos.x - centerX;
+            const dy = pos.y - centerY;
+            child.position({
+                x: centerX + dx * factor,
+                y: centerY + dy * factor,
+            });
+        });
+    });
+}
+
+function visionCanvasCompactGroup() {
+    visionCanvasExpandGroup(0.7);
+}
+
 function visionCanvasSave(layerId) {
     if (!window.visionCy || !window.visionId) return;
 
@@ -278,12 +339,15 @@ function visionCanvasSave(layerId) {
                     members.push(child.id());
                 }
             });
+            const bb = node.boundingBox();
             groups.push({
                 id: node.id(),
                 label: node.data('label'),
                 color: node.data('groupColor') || '',
                 x: pos.x,
                 y: pos.y,
+                width: bb.w,
+                height: bb.h,
                 members: members,
             });
         } else {

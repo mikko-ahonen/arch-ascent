@@ -86,6 +86,8 @@ class VisionCanvas(component.Component):
                         "label": group.name,
                         "isGroup": True,
                         "groupColor": group.color or layer.color or "#6c757d",
+                        "groupWidth": group.width,
+                        "groupHeight": group.height,
                     }
                 }
                 if group.position_x is not None and group.position_y is not None:
@@ -394,6 +396,8 @@ class VisionCanvas(component.Component):
                             color=color,
                             position_x=pos_x,
                             position_y=pos_y,
+                            width=group_data.get('width'),
+                            height=group_data.get('height'),
                         )
                         group_id_map[group_id_str] = group
                         # Add members to group
@@ -413,6 +417,8 @@ class VisionCanvas(component.Component):
                             color=color,
                             position_x=pos_x,
                             position_y=pos_y,
+                            width=group_data.get('width'),
+                            height=group_data.get('height'),
                         )
 
             # Update project positions in the current layer
