@@ -47,6 +47,9 @@ class FilterPanel(Component):
         internal_count = Project.objects.filter(internal=True).count()
         external_count = Project.objects.filter(internal=False).count()
 
+        # Get ungrouped projects count
+        ungrouped_count = Project.objects.filter(group__isnull=True).count()
+
         # Get all tags with counts
         from taggit.models import Tag
         from django.db.models import Count
@@ -142,6 +145,7 @@ class FilterPanel(Component):
             'connectivity_counts': connectivity_counts,
             'internal_count': internal_count,
             'external_count': external_count,
+            'ungrouped_count': ungrouped_count,
             'filtered_count': filtered_count,
             'total_count': total_count,
             # Status metadata
@@ -184,13 +188,19 @@ class FilterPanel(Component):
         else:
             queryset = queryset.none()
 
-        # Filter by groups - if none selected, show nothing
-        # Include projects with no group when all groups are selected
-        if filter_config['selected_groups']:
-            from django.db.models import Q
+        # Filter by groups and ungrouped
+        from django.db.models import Q
+        selected_groups = filter_config.get('selected_groups', [])
+        include_ungrouped = filter_config.get('include_ungrouped', True)
+
+        if selected_groups and include_ungrouped:
             queryset = queryset.filter(
-                Q(group_id__in=filter_config['selected_groups']) | Q(group__isnull=True)
+                Q(group_id__in=selected_groups) | Q(group__isnull=True)
             )
+        elif selected_groups:
+            queryset = queryset.filter(group_id__in=selected_groups)
+        elif include_ungrouped:
+            queryset = queryset.filter(group__isnull=True)
         else:
             queryset = queryset.none()
 
@@ -261,6 +271,7 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
         'include_disconnected': data.get('include_disconnected', False),
         'include_external': data.get('include_external', False),
         'selected_groups': data.get('selected_groups', []),
+        'include_ungrouped': data.get('include_ungrouped', True),
         'selected_tags': data.get('selected_tags', []),
         'name_pattern': data.get('name_pattern', ''),
     }
@@ -292,14 +303,24 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
     else:
         queryset = queryset.none()
 
-    # Filter by groups - if none selected, show nothing
-    # Include projects with no group when all groups are selected
-    if filter_config['selected_groups']:
-        from django.db.models import Q
+    # Filter by groups and ungrouped
+    from django.db.models import Q
+    selected_groups = filter_config['selected_groups']
+    include_ungrouped = filter_config.get('include_ungrouped', True)
+
+    if selected_groups and include_ungrouped:
+        # Include both selected groups and ungrouped
         queryset = queryset.filter(
-            Q(group_id__in=filter_config['selected_groups']) | Q(group__isnull=True)
+            Q(group_id__in=selected_groups) | Q(group__isnull=True)
         )
+    elif selected_groups:
+        # Only selected groups, no ungrouped
+        queryset = queryset.filter(group_id__in=selected_groups)
+    elif include_ungrouped:
+        # Only ungrouped
+        queryset = queryset.filter(group__isnull=True)
     else:
+        # Nothing selected
         queryset = queryset.none()
 
     # Filter by tags - if tags selected, show projects with those tags or no tags

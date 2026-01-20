@@ -96,6 +96,13 @@
                     </span>
                 </div>
                 <div class="d-flex flex-wrap gap-2 mt-1">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-ungrouped" x-model="filters.include_ungrouped">
+                        <label class="form-check-label small" for="filter-ungrouped">
+                            Ungrouped (<span class="text-muted">{{ ungrouped_count }}</span>)
+                        </label>
+                    </div>
                     {% for group in groups %}
                     <div class="form-check form-check-inline">
                         <input class="form-check-input group-checkbox" type="checkbox"
@@ -108,7 +115,7 @@
                         </label>
                     </div>
                     {% empty %}
-                    <span class="text-muted small">No groups</span>
+                    <span class="text-muted small">No groups defined</span>
                     {% endfor %}
                 </div>
                 <!-- Hidden select to store values for form compatibility -->
@@ -202,6 +209,7 @@ function filterPanel() {
             include_unused: {{ current_filter.include_unused|yesno:"true,false" }},
             include_disconnected: {{ current_filter.include_disconnected|yesno:"true,false" }},
             include_external: {{ current_filter.include_external|yesno:"true,false" }},
+            include_ungrouped: true,
             selected_groups: [],
             selected_tags: [],
             name_pattern: "{{ current_filter.name_pattern }}",
@@ -258,11 +266,13 @@ function filterPanel() {
         selectAllGroups() {
             const select = document.getElementById('filter-groups');
             this.filters.selected_groups = Array.from(select.options).map(o => o.value);
+            this.filters.include_ungrouped = true;
             document.querySelectorAll('.group-checkbox').forEach(cb => cb.checked = true);
         },
 
         clearAllGroups() {
             this.filters.selected_groups = [];
+            this.filters.include_ungrouped = false;
             document.querySelectorAll('.group-checkbox').forEach(cb => cb.checked = false);
         },
 
