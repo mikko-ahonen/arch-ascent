@@ -5,6 +5,10 @@ from .components.filter_panel.filter_panel import (
     filter_apply,
     filter_counts,
 )
+from .components.node_expander.node_expander import (
+    node_search,
+    expand_node,
+)
 
 app_name = 'scope'
 
@@ -19,4 +23,8 @@ urlpatterns = [
     # HTMX endpoints (for filter panel component)
     path('htmx/apply/', filter_apply, name='filter_apply'),
     path('htmx/counts/', filter_counts, name='filter_counts'),
+
+    # HTMX endpoints (for node expander component)
+    path('htmx/node-search/', node_search, name='node_search'),
+    path('htmx/expand-node/', expand_node, name='expand_node'),
 ]

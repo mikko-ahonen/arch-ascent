@@ -1,0 +1,228 @@
+<div id="node-expander" class="card mb-3" x-data="nodeExpander()">
+    <div class="card-header py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">Expand from Node</small>
+            <small class="text-muted" x-show="expandedKeys.length > 0" x-cloak>
+                +<span x-text="expandedKeys.length"></span> nodes
+            </small>
+        </div>
+    </div>
+
+    <div class="card-body">
+        <!-- Node Search with Autocomplete -->
+        <div class="mb-3 position-relative">
+            <label class="form-label fw-semibold small">Search Node</label>
+            <input type="text"
+                   class="form-control form-control-sm"
+                   placeholder="Type to search..."
+                   x-model="searchQuery"
+                   @input.debounce.300ms="searchNodes()"
+                   @focus="showResults = searchResults.length > 0"
+                   @keydown.escape="showResults = false"
+                   autocomplete="off">
+
+            <!-- Autocomplete dropdown -->
+            <div class="list-group position-absolute w-100 shadow-sm"
+                 style="z-index: 1050; max-height: 200px; overflow-y: auto;"
+                 x-show="showResults && searchResults.length > 0"
+                 x-cloak
+                 @click.away="showResults = false">
+                <template x-for="node in searchResults" :key="node.key">
+                    <button type="button"
+                            class="list-group-item list-group-item-action small py-1"
+                            @click="selectNode(node)">
+                        <span x-text="node.basename"></span>
+                        <small class="text-muted d-block text-truncate" x-text="node.key"></small>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        <!-- Selected Node Display -->
+        <div class="mb-3" x-show="selectedNode" x-cloak>
+            <small class="text-muted">Selected:</small>
+            <span class="badge bg-primary" x-text="selectedNode?.basename"></span>
+            <button class="btn btn-link btn-sm p-0 ms-1" @click="clearSelection()" title="Clear selection">
+                &times;
+            </button>
+        </div>
+
+        <!-- Degree and Direction -->
+        <div class="row mb-3">
+            <div class="col-5">
+                <label class="form-label fw-semibold small">Degree</label>
+                <input type="number" class="form-control form-control-sm"
+                       x-model.number="degree" min="1" max="10">
+            </div>
+            <div class="col-7">
+                <label class="form-label fw-semibold small">Direction</label>
+                <select class="form-select form-select-sm" x-model="direction">
+                    <option value="both">Both</option>
+                    <option value="downstream">Downstream</option>
+                    <option value="upstream">Upstream</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="d-flex justify-content-between gap-2">
+            <button class="btn btn-sm btn-primary flex-grow-1"
+                    @click="expandFromNode()"
+                    :disabled="!selectedNode || loading">
+                <span x-show="loading" class="spinner-border spinner-border-sm me-1"></span>
+                Add Connected
+            </button>
+            <button class="btn btn-sm btn-outline-secondary"
+                    @click="clearExpansion()"
+                    x-show="expandedKeys.length > 0"
+                    x-cloak>
+                Clear
+            </button>
+        </div>
+
+        <!-- Current Expansion Info -->
+        <div class="mt-2 small text-muted" x-show="expandedFrom" x-cloak>
+            Expanded from <strong x-text="expandedFrom"></strong>
+            (<span x-text="expandedKeys.length"></span> nodes, degree <span x-text="expandedDegree"></span>)
+        </div>
+
+        <!-- Error message -->
+        <div class="mt-2 small text-danger" x-show="errorMessage" x-text="errorMessage" x-cloak></div>
+    </div>
+</div>
+
+<script>
+function nodeExpander() {
+    return {
+        // Search state
+        searchQuery: '',
+        searchResults: [],
+        selectedNode: null,
+        showResults: false,
+
+        // Expansion parameters
+        degree: 2,
+        direction: 'both',
+
+        // Results state
+        expandedFrom: null,
+        expandedDegree: null,
+        expandedKeys: [],
+
+        // UI state
+        loading: false,
+        errorMessage: '',
+
+        async searchNodes() {
+            this.errorMessage = '';
+
+            if (this.searchQuery.length < 2) {
+                this.searchResults = [];
+                this.showResults = false;
+                return;
+            }
+
+            try {
+                const response = await fetch('/scope/htmx/node-search/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.getCsrfToken(),
+                    },
+                    body: JSON.stringify({ query: this.searchQuery }),
+                });
+
+                if (!response.ok) throw new Error('Search failed');
+
+                const data = await response.json();
+                this.searchResults = data.results || [];
+                this.showResults = this.searchResults.length > 0;
+            } catch (e) {
+                console.error('Search error:', e);
+                this.searchResults = [];
+            }
+        },
+
+        selectNode(node) {
+            this.selectedNode = node;
+            this.searchQuery = node.basename;
+            this.showResults = false;
+            this.searchResults = [];
+            this.errorMessage = '';
+        },
+
+        clearSelection() {
+            this.selectedNode = null;
+            this.searchQuery = '';
+            this.searchResults = [];
+            this.errorMessage = '';
+        },
+
+        async expandFromNode() {
+            if (!this.selectedNode) return;
+
+            this.loading = true;
+            this.errorMessage = '';
+
+            try {
+                const response = await fetch('/scope/htmx/expand-node/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': this.getCsrfToken(),
+                    },
+                    body: JSON.stringify({
+                        node_key: this.selectedNode.key,
+                        degree: this.degree,
+                        direction: this.direction,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Expansion failed');
+                }
+
+                const data = await response.json();
+                this.expandedFrom = this.selectedNode.basename;
+                this.expandedDegree = data.degree;
+                this.expandedKeys = data.project_keys || [];
+
+                // Dispatch event for main page to handle
+                window.dispatchEvent(new CustomEvent('expand-applied', {
+                    detail: {
+                        project_keys: this.expandedKeys,
+                        count: data.count,
+                        start_node: data.start_node,
+                    }
+                }));
+            } catch (e) {
+                console.error('Expand error:', e);
+                this.errorMessage = e.message || 'Failed to expand from node';
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        clearExpansion() {
+            this.expandedFrom = null;
+            this.expandedDegree = null;
+            this.expandedKeys = [];
+            this.clearSelection();
+
+            // Dispatch clear event
+            window.dispatchEvent(new CustomEvent('expand-applied', {
+                detail: { project_keys: [], count: 0 }
+            }));
+        },
+
+        getCsrfToken() {
+            const el = document.querySelector('[name=csrfmiddlewaretoken]');
+            if (el) return el.value;
+            // Fallback: get from cookie
+            const match = document.cookie.match(/csrftoken=([^;]+)/);
+            return match ? match[1] : '';
+        },
+    };
+}
+</script>

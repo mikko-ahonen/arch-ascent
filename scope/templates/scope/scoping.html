@@ -24,6 +24,7 @@
 
 <div class="row">
     <div class="col-lg-4 col-md-5">
+        {% component "node_expander" %}{% endcomponent %}
         {% component "filter_panel" %}{% endcomponent %}
     </div>
 
@@ -110,16 +111,30 @@
 
 {% block extra_js %}
 <script>
-window.addEventListener('filter-applied', function(e) {
-    const allowedKeys = new Set(e.detail.project_keys);
+// Track both filter and expansion keys separately
+let filterKeys = new Set();
+let expandedKeys = new Set();
+
+function updateVisibleRows() {
+    // Show rows that match filter OR expansion (union)
+    const allowedKeys = new Set([...filterKeys, ...expandedKeys]);
 
     document.querySelectorAll('#project-table tbody tr').forEach(row => {
         row.style.display = allowedKeys.has(row.dataset.projectKey) ? '' : 'none';
     });
 
-    document.getElementById('project-list-count').textContent = e.detail.count;
-
+    document.getElementById('project-list-count').textContent = allowedKeys.size;
     updateSelectionCount();
+}
+
+window.addEventListener('filter-applied', function(e) {
+    filterKeys = new Set(e.detail.project_keys);
+    updateVisibleRows();
+});
+
+window.addEventListener('expand-applied', function(e) {
+    expandedKeys = new Set(e.detail.project_keys || []);
+    updateVisibleRows();
 });
 
 function toggleSelectAll() {
