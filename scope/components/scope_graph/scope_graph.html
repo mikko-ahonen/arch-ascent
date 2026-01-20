@@ -21,8 +21,14 @@
     let scopeCyclesVisible = false;
     let scopeCy = null;
 
-    // Get CSRF token from cookie
-    function getCookie(name) {
+    // Get CSRF token from cookie or hidden input
+    function getCSRFToken() {
+        // First try the hidden input field
+        const input = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (input) return input.value;
+
+        // Fallback to cookie
+        const name = 'csrftoken';
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
             const cookies = document.cookie.split(';');
@@ -146,13 +152,17 @@
     // Listen for updates from the scoping page
     window.addEventListener('scope-graph-update', function(e) {
         const { visibleKeys, selectedKeys } = e.detail;
+        console.log('scope-graph-update received:', visibleKeys?.length, 'visible keys');
 
         // Initialize graph lazily (only when first needed and container is visible)
         if (!scopeCy) {
+            console.log('Initializing scope graph...');
             initScopeGraph();
+            console.log('scopeCy initialized:', !!scopeCy);
         }
 
         if (!visibleKeys || visibleKeys.length === 0) {
+            console.log('No visible keys, clearing graph');
             if (scopeCy) {
                 scopeCy.elements().remove();
                 document.getElementById('scope-graph-count').textContent = '0';
@@ -161,41 +171,54 @@
         }
 
         // Fetch graph data for visible keys
+        const csrfToken = getCSRFToken();
+        console.log('CSRF token:', csrfToken ? 'found' : 'NOT FOUND');
+
         fetch('/htmx/scope-graph/data/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
+                'X-CSRFToken': csrfToken
             },
             body: JSON.stringify({ keys: visibleKeys })
         })
             .then(r => r.json())
             .then(data => {
-                console.log('Scope graph data:', data.nodes.length, 'nodes,', data.edges.length, 'edges');
+                console.log('Scope graph data:', data.nodes?.length, 'nodes,', data.edges?.length, 'edges');
+                console.log('Sample node:', data.nodes?.[0]);
+
+                const container = document.getElementById('scope-cy');
+                console.log('Container dimensions:', container?.offsetWidth, 'x', container?.offsetHeight);
 
                 // Clear and reload
                 scopeCy.elements().remove();
                 scopeCy.add([...data.nodes, ...data.edges]);
+                console.log('Elements added, total:', scopeCy.elements().length);
 
                 // Resize to ensure container dimensions are correct
                 scopeCy.resize();
 
                 // Apply layout
                 if (data.has_positions) {
+                    console.log('Using preset layout');
                     scopeCy.layout({ name: 'preset', padding: 30 }).run();
                 } else {
+                    console.log('Using cose layout');
                     scopeCy.layout({
                         name: 'cose',
                         animate: false,
-                        nodeRepulsion: 50000,
-                        idealEdgeLength: 150,
-                        edgeElasticity: 100,
-                        nestingFactor: 5,
-                        padding: 50,
+                        nodeRepulsion: 400000,
+                        idealEdgeLength: 400,
+                        edgeElasticity: 400,
+                        padding: 100,
+                        randomize: true,
+                        componentSpacing: 200,
+                        nodeOverlap: 100,
                     }).run();
                 }
 
                 scopeCy.fit(30);
+                console.log('After fit, zoom:', scopeCy.zoom(), 'pan:', scopeCy.pan());
 
                 // Update count
                 document.getElementById('scope-graph-count').textContent = data.nodes.length;
@@ -278,12 +301,14 @@
         scopeCy.layout({
             name: 'cose',
             animate: true,
-            animationDuration: 500,
-            nodeRepulsion: 50000,
-            idealEdgeLength: 150,
-            edgeElasticity: 100,
-            nestingFactor: 5,
-            padding: 50,
+            animationDuration: 800,
+            nodeRepulsion: 400000,
+            idealEdgeLength: 400,
+            edgeElasticity: 400,
+            padding: 100,
+            randomize: true,
+            componentSpacing: 200,
+            nodeOverlap: 100,
         }).run();
     };
 })();

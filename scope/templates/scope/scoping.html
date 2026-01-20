@@ -146,9 +146,7 @@ function switchToGraphView(event) {
     document.getElementById('graph-tab').classList.add('active');
 
     // Update graph with current filter/selection state
-    if (window.scopeGraph) {
-        updateScopeGraph();
-    }
+    updateScopeGraph();
 }
 
 function updateScopeGraph() {

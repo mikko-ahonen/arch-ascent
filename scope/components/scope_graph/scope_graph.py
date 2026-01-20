@@ -7,6 +7,7 @@ import json
 from django_components import Component, register
 from django.http import JsonResponse
 from django.urls import path
+from django.views.decorators.csrf import csrf_exempt
 
 from dependencies.models import Project, Dependency
 from dependencies.components.graph.graph import (
@@ -73,6 +74,7 @@ def get_graph_data_for_keys(project_keys: list[str]) -> dict:
     return {"nodes": nodes, "edges": edges, "has_positions": has_positions}
 
 
+@csrf_exempt
 def scope_graph_data(request):
     """Return graph data for specified project keys (POST with JSON body)."""
     if request.method != 'POST':
