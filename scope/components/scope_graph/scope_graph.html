@@ -1,0 +1,290 @@
+<div id="scope-graph-container">
+    <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+        <div class="btn-group btn-group-sm">
+            <button id="scope-toggle-labels-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleLabels()">Labels</button>
+            <button id="scope-toggle-transitive-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleTransitive()">Transitive</button>
+            <button id="scope-toggle-cycles-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleCycles()">Cycles</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphFit()">Fit</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphRelayout()">Relayout</button>
+        </div>
+        <small class="text-muted"><span id="scope-graph-count">0</span> nodes</small>
+    </div>
+    <div id="scope-cy" style="height: {{ height }}; width: 100%;"></div>
+    <div id="scope-cy-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 1000;"></div>
+</div>
+
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script>
+(function() {
+    let scopeLabelsVisible = true;
+    let scopeTransitiveVisible = true;
+    let scopeCyclesVisible = false;
+    let scopeCy = null;
+
+    // Get CSRF token from cookie
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    function initScopeGraph() {
+        const container = document.getElementById('scope-cy');
+        if (!container) return;
+
+        scopeCy = cytoscape({
+            container: container,
+            elements: [],
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'background-color': '#0d6efd',
+                        'label': 'data(label)',
+                        'color': '#e0e0e0',
+                        'text-outline-color': '#1a1a1a',
+                        'text-outline-width': 2,
+                        'text-valign': 'bottom',
+                        'text-margin-y': 5,
+                        'font-size': '11px',
+                        'width': 30,
+                        'height': 30,
+                    }
+                },
+                {
+                    selector: 'node:selected',
+                    style: {
+                        'background-color': '#198754',
+                        'border-width': 3,
+                        'border-color': '#333',
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 1.5,
+                        'line-color': '#6c757d',
+                        'target-arrow-color': '#6c757d',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier',
+                    }
+                },
+                {
+                    selector: 'edge[?transitive]',
+                    style: {
+                        'line-style': 'dashed',
+                        'line-color': '#adb5bd',
+                        'target-arrow-color': '#adb5bd',
+                        'opacity': 0.6,
+                    }
+                },
+                {
+                    selector: 'edge.cycle-highlighted',
+                    style: {
+                        'line-color': '#dc3545',
+                        'target-arrow-color': '#dc3545',
+                        'width': 2,
+                        'opacity': 1,
+                    }
+                },
+                {
+                    selector: 'node.cycle-highlighted',
+                    style: {
+                        'border-width': 2,
+                        'border-color': '#dc3545',
+                    }
+                }
+            ],
+            layout: { name: 'preset' },
+            minZoom: 0.2,
+            maxZoom: 3,
+        });
+
+        // Handle selection changes - sync back to list view
+        scopeCy.on('select unselect', 'node', function() {
+            const selectedKeys = scopeCy.nodes(':selected').map(n => n.id());
+            window.dispatchEvent(new CustomEvent('scope-graph-selection', {
+                detail: { selectedKeys }
+            }));
+        });
+
+        // Tooltip on hover
+        const tooltip = document.getElementById('scope-cy-tooltip');
+        const cyContainer = document.getElementById('scope-cy');
+
+        scopeCy.on('mouseover', 'node', function(e) {
+            if (!scopeLabelsVisible) {
+                tooltip.textContent = e.target.data('label');
+                tooltip.style.display = 'block';
+            }
+        });
+
+        scopeCy.on('mousemove', 'node', function(e) {
+            if (!scopeLabelsVisible) {
+                const pos = e.renderedPosition;
+                tooltip.style.left = (pos.x + 15) + 'px';
+                tooltip.style.top = (pos.y - 10) + 'px';
+            }
+        });
+
+        scopeCy.on('mouseout', 'node', function() {
+            tooltip.style.display = 'none';
+        });
+
+        window.scopeGraph = scopeCy;
+    }
+
+    // Listen for updates from the scoping page
+    window.addEventListener('scope-graph-update', function(e) {
+        const { visibleKeys, selectedKeys } = e.detail;
+
+        // Initialize graph lazily (only when first needed and container is visible)
+        if (!scopeCy) {
+            initScopeGraph();
+        }
+
+        if (!visibleKeys || visibleKeys.length === 0) {
+            if (scopeCy) {
+                scopeCy.elements().remove();
+                document.getElementById('scope-graph-count').textContent = '0';
+            }
+            return;
+        }
+
+        // Fetch graph data for visible keys
+        fetch('/htmx/scope-graph/data/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ keys: visibleKeys })
+        })
+            .then(r => r.json())
+            .then(data => {
+                console.log('Scope graph data:', data.nodes.length, 'nodes,', data.edges.length, 'edges');
+
+                // Clear and reload
+                scopeCy.elements().remove();
+                scopeCy.add([...data.nodes, ...data.edges]);
+
+                // Resize to ensure container dimensions are correct
+                scopeCy.resize();
+
+                // Apply layout
+                if (data.has_positions) {
+                    scopeCy.layout({ name: 'preset', padding: 30 }).run();
+                } else {
+                    scopeCy.layout({
+                        name: 'cose',
+                        animate: false,
+                        nodeRepulsion: 50000,
+                        idealEdgeLength: 150,
+                        edgeElasticity: 100,
+                        nestingFactor: 5,
+                        padding: 50,
+                    }).run();
+                }
+
+                scopeCy.fit(30);
+
+                // Update count
+                document.getElementById('scope-graph-count').textContent = data.nodes.length;
+
+                // Restore selection state
+                if (selectedKeys && selectedKeys.length > 0) {
+                    const selectedSet = new Set(selectedKeys);
+                    scopeCy.nodes().forEach(node => {
+                        if (selectedSet.has(node.id())) {
+                            node.select();
+                        }
+                    });
+                }
+
+                // Restore visibility settings
+                if (!scopeTransitiveVisible) {
+                    scopeCy.edges('[?transitive]').hide();
+                }
+            })
+            .catch(err => console.error('Scope graph fetch error:', err));
+    });
+
+    // Expose functions globally
+    window.scopeGraphToggleLabels = function() {
+        if (!scopeCy) return;
+        scopeLabelsVisible = !scopeLabelsVisible;
+        const btn = document.getElementById('scope-toggle-labels-btn');
+        if (scopeLabelsVisible) {
+            scopeCy.style().selector('node').style('label', 'data(label)').update();
+            btn.classList.add('active');
+        } else {
+            scopeCy.style().selector('node').style('label', '').update();
+            btn.classList.remove('active');
+        }
+    };
+
+    window.scopeGraphToggleTransitive = function() {
+        if (!scopeCy) return;
+        scopeTransitiveVisible = !scopeTransitiveVisible;
+        const btn = document.getElementById('scope-toggle-transitive-btn');
+        if (scopeTransitiveVisible) {
+            scopeCy.edges('[?transitive]').show();
+            btn.classList.add('active');
+        } else {
+            scopeCy.edges('[?transitive]').hide();
+            btn.classList.remove('active');
+        }
+    };
+
+    window.scopeGraphToggleCycles = function() {
+        if (!scopeCy) return;
+        scopeCyclesVisible = !scopeCyclesVisible;
+        const btn = document.getElementById('scope-toggle-cycles-btn');
+        const cycleEdges = scopeCy.edges('[?inCycle]');
+
+        if (scopeCyclesVisible) {
+            cycleEdges.addClass('cycle-highlighted');
+            cycleEdges.forEach(edge => {
+                edge.source().addClass('cycle-highlighted');
+                edge.target().addClass('cycle-highlighted');
+            });
+            btn.classList.add('active');
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add('btn-danger');
+        } else {
+            cycleEdges.removeClass('cycle-highlighted');
+            scopeCy.nodes().removeClass('cycle-highlighted');
+            btn.classList.remove('active');
+            btn.classList.remove('btn-danger');
+            btn.classList.add('btn-outline-secondary');
+        }
+    };
+
+    window.scopeGraphFit = function() {
+        if (scopeCy) scopeCy.fit(30);
+    };
+
+    window.scopeGraphRelayout = function() {
+        if (!scopeCy) return;
+        scopeCy.layout({
+            name: 'cose',
+            animate: true,
+            animationDuration: 500,
+            nodeRepulsion: 50000,
+            idealEdgeLength: 150,
+            edgeElasticity: 100,
+            nestingFactor: 5,
+            padding: 50,
+        }).run();
+    };
+})();
+</script>

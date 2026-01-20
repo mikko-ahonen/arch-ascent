@@ -9,10 +9,11 @@ from components.items_list.items_list import ItemsList
 from dependencies.components.graph.graph import DependencyGraph
 from dependencies.components.refactoring.refactoring import RefactoringBacklog
 from scope.components.filter_panel.filter_panel import FilterPanel
+from scope.components.scope_graph.scope_graph import ScopeGraph
 
 urlpatterns = []
 
 # Register component URLs
-for component_class in [Counter, Search, Quote, ItemsList, DependencyGraph, RefactoringBacklog, FilterPanel]:
+for component_class in [Counter, Search, Quote, ItemsList, DependencyGraph, RefactoringBacklog, FilterPanel, ScopeGraph]:
     if hasattr(component_class, 'get_urls'):
         urlpatterns.extend(component_class.get_urls())

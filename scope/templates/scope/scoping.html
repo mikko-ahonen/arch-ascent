@@ -32,52 +32,66 @@
         <div class="card">
             <div class="card-header py-2">
                 <div class="d-flex justify-content-between align-items-center">
-                    <small class="text-muted">Components</small>
+                    <ul class="nav nav-tabs card-header-tabs" id="view-tabs">
+                        <li class="nav-item">
+                            <a class="nav-link active py-1 px-3" id="list-tab" href="#" onclick="switchToListView(event)">List</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link py-1 px-3" id="graph-tab" href="#" onclick="switchToGraphView(event)">Graph</a>
+                        </li>
+                    </ul>
                     <small class="text-muted"><span id="checked-count">0</span> / <span id="project-list-count">{{ project_count }}</span></small>
                 </div>
             </div>
             <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0" id="project-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 32px;">
-                                    <input type="checkbox" class="form-check-input" id="select-all" onclick="toggleSelectAll()">
-                                </th>
-                                <th>Name</th>
-                                <th>Description</th>
-                                <th style="width: 100px;">Status</th>
-                                <th style="width: 100px;">Group</th>
-                                <th>Tags</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in projects %}
-                            <tr data-project-id="{{ item.project.id }}" data-project-key="{{ item.project.key }}" data-status="{{ item.status }}">
-                                <td>
-                                    <input type="checkbox" class="form-check-input project-checkbox" value="{{ item.project.id }}">
-                                </td>
-                                <td title="{{ item.project.name }}">{{ item.project.basename|default:item.project.name }}</td>
-                                <td>
-                                    <span class="editable-description text-muted small"
-                                          data-project-id="{{ item.project.id }}"
-                                          title="Click to edit">{{ item.project.description|default:"" }}</span>
-                                </td>
-                                <td class="text-muted small">{{ item.status|status_display }}</td>
-                                <td class="text-muted small">{{ item.project.group.name|default:"" }}</td>
-                                <td class="project-tags">
-                                    {% for tag in item.project.tags.all %}
-                                    <span class="badge bg-secondary me-1" data-tag="{{ tag.name }}">{{ tag.name }}</span>
-                                    {% endfor %}
-                                </td>
-                            </tr>
-                            {% empty %}
-                            <tr>
-                                <td colspan="6" class="text-center text-muted py-3">No components</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <!-- List View -->
+                <div id="list-view">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0" id="project-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 32px;">
+                                        <input type="checkbox" class="form-check-input" id="select-all" onclick="toggleSelectAll()">
+                                    </th>
+                                    <th>Name</th>
+                                    <th>Description</th>
+                                    <th style="width: 100px;">Status</th>
+                                    <th style="width: 100px;">Group</th>
+                                    <th>Tags</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in projects %}
+                                <tr data-project-id="{{ item.project.id }}" data-project-key="{{ item.project.key }}" data-status="{{ item.status }}">
+                                    <td>
+                                        <input type="checkbox" class="form-check-input project-checkbox" value="{{ item.project.id }}">
+                                    </td>
+                                    <td title="{{ item.project.name }}">{{ item.project.basename|default:item.project.name }}</td>
+                                    <td>
+                                        <span class="editable-description text-muted small"
+                                              data-project-id="{{ item.project.id }}"
+                                              title="Click to edit">{{ item.project.description|default:"" }}</span>
+                                    </td>
+                                    <td class="text-muted small">{{ item.status|status_display }}</td>
+                                    <td class="text-muted small">{{ item.project.group.name|default:"" }}</td>
+                                    <td class="project-tags">
+                                        {% for tag in item.project.tags.all %}
+                                        <span class="badge bg-secondary me-1" data-tag="{{ tag.name }}">{{ tag.name }}</span>
+                                        {% endfor %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-3">No components</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Graph View -->
+                <div id="graph-view" style="display: none;">
+                    {% component "scope_graph" height="500px" %}{% endcomponent %}
                 </div>
             </div>
         </div>
@@ -111,6 +125,65 @@
 
 {% block extra_js %}
 <script>
+// View switching
+let currentView = 'list';
+
+function switchToListView(event) {
+    if (event) event.preventDefault();
+    currentView = 'list';
+    document.getElementById('list-view').style.display = '';
+    document.getElementById('graph-view').style.display = 'none';
+    document.getElementById('list-tab').classList.add('active');
+    document.getElementById('graph-tab').classList.remove('active');
+}
+
+function switchToGraphView(event) {
+    if (event) event.preventDefault();
+    currentView = 'graph';
+    document.getElementById('list-view').style.display = 'none';
+    document.getElementById('graph-view').style.display = '';
+    document.getElementById('list-tab').classList.remove('active');
+    document.getElementById('graph-tab').classList.add('active');
+
+    // Update graph with current filter/selection state
+    if (window.scopeGraph) {
+        updateScopeGraph();
+    }
+}
+
+function updateScopeGraph() {
+    // Get visible project keys from current filter state
+    let visibleKeys = new Set([...filterKeys, ...expandedKeys]);
+
+    // Fallback: if no filter keys yet, get visible rows from DOM
+    if (visibleKeys.size === 0) {
+        document.querySelectorAll('#project-table tbody tr').forEach(row => {
+            if (row.style.display !== 'none' && row.dataset.projectKey) {
+                visibleKeys.add(row.dataset.projectKey);
+            }
+        });
+    }
+
+    // Get selected project keys (checked checkboxes)
+    const selectedKeys = new Set();
+    document.querySelectorAll('.project-checkbox:checked').forEach(cb => {
+        const row = cb.closest('tr');
+        if (row && row.style.display !== 'none') {
+            selectedKeys.add(row.dataset.projectKey);
+        }
+    });
+
+    console.log('updateScopeGraph:', visibleKeys.size, 'visible,', selectedKeys.size, 'selected');
+
+    // Dispatch event to update graph
+    window.dispatchEvent(new CustomEvent('scope-graph-update', {
+        detail: {
+            visibleKeys: Array.from(visibleKeys),
+            selectedKeys: Array.from(selectedKeys)
+        }
+    }));
+}
+
 // Track both filter and expansion keys separately
 let filterKeys = new Set();
 let expandedKeys = new Set();
@@ -130,11 +203,29 @@ function updateVisibleRows() {
 window.addEventListener('filter-applied', function(e) {
     filterKeys = new Set(e.detail.project_keys);
     updateVisibleRows();
+    if (currentView === 'graph') updateScopeGraph();
 });
 
 window.addEventListener('expand-applied', function(e) {
     expandedKeys = new Set(e.detail.project_keys || []);
     updateVisibleRows();
+    if (currentView === 'graph') updateScopeGraph();
+});
+
+// Listen for selection changes from graph
+window.addEventListener('scope-graph-selection', function(e) {
+    const { selectedKeys } = e.detail;
+    const selectedSet = new Set(selectedKeys);
+
+    // Update checkboxes to match graph selection
+    document.querySelectorAll('#project-table tbody tr').forEach(row => {
+        const key = row.dataset.projectKey;
+        const checkbox = row.querySelector('.project-checkbox');
+        if (checkbox) {
+            checkbox.checked = selectedSet.has(key);
+        }
+    });
+    updateSelectionCount();
 });
 
 function toggleSelectAll() {
@@ -143,6 +234,7 @@ function toggleSelectAll() {
         if (cb.closest('tr').style.display !== 'none') cb.checked = checked;
     });
     updateSelectionCount();
+    if (currentView === 'graph') updateScopeGraph();
 }
 
 function updateSelectionCount() {
@@ -190,7 +282,10 @@ function setSelectedStatus(status) {
 }
 
 document.querySelectorAll('.project-checkbox').forEach(cb => {
-    cb.addEventListener('change', updateSelectionCount);
+    cb.addEventListener('change', function() {
+        updateSelectionCount();
+        if (currentView === 'graph') updateScopeGraph();
+    });
 });
 
 function createVisionFromSelection() {

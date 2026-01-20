@@ -57,16 +57,13 @@ class VisionCanvas(component.Component):
             vision: The Vision object
             visible_layers: List of layer IDs to show. If None, show all layers.
 
-        All projects are shown regardless of group membership. Projects in
-        groups appear inside their group; others appear as standalone nodes.
+        Only projects that are members of the vision's groups are shown.
         """
         nodes = []
         edges = []
         has_positions = False
         added_project_keys = set()  # Track which projects we've added
-
-        # Get all projects
-        all_projects = {p.key: p for p in Project.objects.all()}
+        scoped_projects = {}  # Only projects in the vision's groups
 
         # Get layers to display (prefetch groups and their memberships)
         layers = vision.layers.prefetch_related(
@@ -99,6 +96,9 @@ class VisionCanvas(component.Component):
                 for membership in group.memberships.select_related('project').all():
                     project = membership.project
 
+                    # Track all scoped projects for dependency filtering
+                    scoped_projects[project.key] = project
+
                     # Skip if already added (from another layer's group)
                     if project.key in added_project_keys:
                         continue
@@ -127,39 +127,12 @@ class VisionCanvas(component.Component):
                         has_positions = True
                     nodes.append(project_node)
 
-        # Add remaining projects that aren't in any visible group
-        # Get the first visible layer for position lookups
-        first_layer = layers.first() if layers else None
-
-        for key, project in all_projects.items():
-            if key not in added_project_keys:
-                added_project_keys.add(key)
-                project_node = {
-                    "data": {
-                        "id": project.key,
-                        "label": project.name,
-                        "description": project.description,
-                    }
-                }
-                # Check for saved position in the current layer
-                if first_layer:
-                    position = LayerNodePosition.objects.filter(
-                        layer=first_layer, project=project
-                    ).first()
-                    if position and position.position_x is not None:
-                        project_node["position"] = {
-                            "x": position.position_x,
-                            "y": position.position_y,
-                        }
-                        has_positions = True
-                nodes.append(project_node)
-
-        # Add dependencies between all projects
-        all_project_ids = set(p.id for p in all_projects.values())
-        if all_project_ids:
+        # Add dependencies only between scoped projects
+        scoped_project_ids = set(p.id for p in scoped_projects.values())
+        if scoped_project_ids:
             deps = Dependency.objects.filter(
-                source_id__in=all_project_ids,
-                target_id__in=all_project_ids
+                source_id__in=scoped_project_ids,
+                target_id__in=scoped_project_ids
             ).select_related('source', 'target')
 
             # Build adjacency for transitive/cycle detection
@@ -195,17 +168,27 @@ class VisionCanvas(component.Component):
             visible_layers: List of layer IDs to show. If None, show all.
 
         Returns a graph with the snapshotted layout (groups, positions).
+        Only projects that are members of the snapshot's groups are shown.
         """
         nodes = []
         edges = []
         has_positions = False
         added_project_keys = set()
+        scoped_project_keys = set()  # Track all projects in the vision's groups
 
         layout_data = version.layout_data or {}
         layers_data = layout_data.get('layers', [])
 
-        # Get all projects for dependency edges
-        all_projects = {p.key: p for p in Project.objects.all()}
+        # First pass: collect all member keys from all groups in visible layers
+        for layer_data in layers_data:
+            layer_id = layer_data.get('id')
+            if visible_layers is not None and layer_id not in visible_layers:
+                continue
+            for group_data in layer_data.get('groups', []):
+                scoped_project_keys.update(group_data.get('members', []))
+
+        # Load only scoped projects
+        scoped_projects = {p.key: p for p in Project.objects.filter(key__in=scoped_project_keys)}
 
         # Build node positions lookup from snapshot (collect all positions first)
         snapshot_positions = {}  # {project_key: {x, y}}
@@ -250,11 +233,11 @@ class VisionCanvas(component.Component):
                 for member_key in group_data.get('members', []):
                     if member_key in added_project_keys:
                         continue
-                    if member_key not in all_projects:
+                    if member_key not in scoped_projects:
                         continue
 
                     added_project_keys.add(member_key)
-                    project = all_projects[member_key]
+                    project = scoped_projects[member_key]
 
                     project_node = {
                         "data": {
@@ -271,29 +254,12 @@ class VisionCanvas(component.Component):
                         has_positions = True
                     nodes.append(project_node)
 
-        # Add remaining projects not in any group
-        for key, project in all_projects.items():
-            if key not in added_project_keys:
-                added_project_keys.add(key)
-                project_node = {
-                    "data": {
-                        "id": project.key,
-                        "label": project.name,
-                        "description": project.description,
-                    }
-                }
-                # Apply position from snapshot if available
-                if key in snapshot_positions:
-                    project_node["position"] = snapshot_positions[key]
-                    has_positions = True
-                nodes.append(project_node)
-
-        # Add dependency edges (same as get_vision_graph_data)
-        all_project_ids = set(p.id for p in all_projects.values())
-        if all_project_ids:
+        # Add dependency edges only between scoped projects
+        scoped_project_ids = set(p.id for p in scoped_projects.values())
+        if scoped_project_ids:
             deps = Dependency.objects.filter(
-                source_id__in=all_project_ids,
-                target_id__in=all_project_ids
+                source_id__in=scoped_project_ids,
+                target_id__in=scoped_project_ids
             ).select_related('source', 'target')
 
             adjacency: dict[str, set[str]] = {}
