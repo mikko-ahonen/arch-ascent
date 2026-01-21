@@ -2,15 +2,18 @@ import os
 import json
 import logging
 import time
-from dataclasses import dataclass
+import base64
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import quote
 import httpx
 
 logger = logging.getLogger(__name__)
 
 # Default cache directory for SBOM files
 DEFAULT_SBOM_CACHE_DIR = os.environ.get('SBOM_CACHE_DIR', 'sbom_cache')
+DEFAULT_POM_CACHE_DIR = os.environ.get('POM_CACHE_DIR', 'pom_cache')
 
 
 # =============================================================================
@@ -561,3 +564,273 @@ class CheckmarxService:
 
         except Exception as e:
             logger.debug(f"No dependencies for project {project_id}: {e}")
+
+
+# =============================================================================
+# GitLab Service
+# =============================================================================
+
+
+@dataclass
+class GitLabProject:
+    """Project data from GitLab API."""
+    id: int
+    name: str
+    path: str
+    path_with_namespace: str
+    description: str = ''
+    default_branch: str = 'main'
+    namespace: dict = field(default_factory=dict)
+    web_url: str = ''
+
+
+class GitLabService:
+    """GitLab API client for fetching projects and file contents.
+
+    Required configuration (via constructor or environment variables):
+    - url: GitLab instance URL (e.g., https://gitlab.com)
+    - token: Personal access token with read_api scope
+
+    Optional:
+    - cache_dir: Directory for caching pom.xml files (default: pom_cache)
+    """
+
+    def __init__(
+        self,
+        url: str | None = None,
+        token: str | None = None,
+        cache_dir: str | None = None,
+        request_delay: float | None = None,
+    ):
+        self.base_url = (url or os.environ.get('GITLAB_URL', '')).rstrip('/')
+        self.token = token or os.environ.get('GITLAB_TOKEN', '')
+        self.cache_dir = Path(cache_dir or DEFAULT_POM_CACHE_DIR)
+        self._client: httpx.Client | None = None
+
+        # Throttle delay between API requests (seconds)
+        if request_delay is not None:
+            self.request_delay = request_delay
+        else:
+            env_delay = os.environ.get('GITLAB_REQUEST_DELAY', '')
+            self.request_delay = float(env_delay) if env_delay else 0.1
+
+    @property
+    def client(self) -> httpx.Client:
+        if self._client is None:
+            if not self.base_url or not self.token:
+                raise ValueError("GitLab URL and token are required")
+            self._client = httpx.Client(
+                base_url=self.base_url,
+                headers={'PRIVATE-TOKEN': self.token},
+                timeout=30.0,
+            )
+        return self._client
+
+    def close(self):
+        if self._client:
+            self._client.close()
+            self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def _throttle(self):
+        """Wait before making a request to avoid overloading the server."""
+        if self.request_delay > 0:
+            time.sleep(self.request_delay)
+
+    def _get(self, endpoint: str, params: dict | None = None) -> dict | list:
+        """Make GET request to GitLab API."""
+        self._throttle()
+        response = self.client.get(f"/api/v4/{endpoint}", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def _get_paginated(self, endpoint: str, params: dict | None = None) -> Iterator[dict]:
+        """Make paginated GET request to GitLab API."""
+        params = params or {}
+        params['per_page'] = 100
+        page = 1
+
+        while True:
+            params['page'] = page
+            self._throttle()
+            response = self.client.get(f"/api/v4/{endpoint}", params=params)
+            response.raise_for_status()
+
+            items = response.json()
+            if not items:
+                break
+
+            yield from items
+
+            # Check if there are more pages
+            total_pages = int(response.headers.get('x-total-pages', '1'))
+            if page >= total_pages:
+                break
+            page += 1
+
+    def get_projects(
+        self,
+        membership: bool = True,
+        archived: bool = False,
+        min_access_level: int | None = None,
+    ) -> Iterator[GitLabProject]:
+        """Fetch all accessible projects.
+
+        Args:
+            membership: Only return projects where the user is a member
+            archived: Include archived projects
+            min_access_level: Minimum access level (10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner)
+        """
+        params = {
+            'membership': str(membership).lower(),
+            'archived': str(archived).lower(),
+            'simple': 'false',
+        }
+        if min_access_level:
+            params['min_access_level'] = min_access_level
+
+        for proj in self._get_paginated('projects', params):
+            yield GitLabProject(
+                id=proj['id'],
+                name=proj['name'],
+                path=proj['path'],
+                path_with_namespace=proj['path_with_namespace'],
+                description=proj.get('description') or '',
+                default_branch=proj.get('default_branch') or 'main',
+                namespace=proj.get('namespace', {}),
+                web_url=proj.get('web_url', ''),
+            )
+
+    def get_file_content(
+        self,
+        project_id: int,
+        file_path: str,
+        ref: str = 'HEAD',
+    ) -> str | None:
+        """Fetch file content from a repository.
+
+        Args:
+            project_id: GitLab project ID
+            file_path: Path to file in repository
+            ref: Branch, tag, or commit SHA (default: HEAD)
+
+        Returns:
+            File content as string, or None if file doesn't exist
+        """
+        try:
+            # URL-encode the file path
+            encoded_path = quote(file_path, safe='')
+            data = self._get(f'projects/{project_id}/repository/files/{encoded_path}', {
+                'ref': ref,
+            })
+            # Content is base64 encoded
+            content = data.get('content', '')
+            encoding = data.get('encoding', 'base64')
+
+            if encoding == 'base64':
+                return base64.b64decode(content).decode('utf-8')
+            return content
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
+    def _get_cache_path(self, project_path: str, file_path: str) -> Path:
+        """Get the cache file path for a project's file."""
+        # Create safe directory structure: namespace/project/file
+        safe_path = project_path.replace('/', os.sep)
+        return self.cache_dir / safe_path / file_path
+
+    def _ensure_cache_dir(self, cache_path: Path):
+        """Ensure the cache directory exists."""
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def get_cached_file(self, project_path: str, file_path: str) -> str | None:
+        """Get cached file content if it exists.
+
+        Args:
+            project_path: Full project path (namespace/project)
+            file_path: Path to file in repository
+
+        Returns:
+            File content as string, or None if not cached
+        """
+        cache_path = self._get_cache_path(project_path, file_path)
+        if cache_path.exists():
+            try:
+                return cache_path.read_text(encoding='utf-8')
+            except OSError as e:
+                logger.warning(f"Failed to read cached file {cache_path}: {e}")
+        return None
+
+    def is_file_cached(self, project_path: str, file_path: str) -> bool:
+        """Check if file is already cached."""
+        return self._get_cache_path(project_path, file_path).exists()
+
+    def cache_file(self, project_path: str, file_path: str, content: str) -> Path:
+        """Cache file content locally.
+
+        Args:
+            project_path: Full project path (namespace/project)
+            file_path: Path to file in repository
+            content: File content to cache
+
+        Returns:
+            Path to cached file
+        """
+        cache_path = self._get_cache_path(project_path, file_path)
+        self._ensure_cache_dir(cache_path)
+        cache_path.write_text(content, encoding='utf-8')
+        return cache_path
+
+    def fetch_and_cache_file(
+        self,
+        project: GitLabProject,
+        file_path: str,
+        use_cache: bool = True,
+    ) -> str | None:
+        """Fetch file from GitLab and cache it locally.
+
+        Args:
+            project: GitLab project
+            file_path: Path to file in repository
+            use_cache: If True, return cached content if available
+
+        Returns:
+            File content as string, or None if file doesn't exist
+        """
+        # Check cache first
+        if use_cache:
+            cached = self.get_cached_file(project.path_with_namespace, file_path)
+            if cached is not None:
+                return cached
+
+        # Fetch from GitLab
+        content = self.get_file_content(project.id, file_path, project.default_branch)
+
+        # Cache if found
+        if content is not None:
+            self.cache_file(project.path_with_namespace, file_path, content)
+
+        return content
+
+    def list_cached_projects(self) -> list[str]:
+        """List all project paths that have cached files."""
+        if not self.cache_dir.exists():
+            return []
+
+        projects = set()
+        for pom_file in self.cache_dir.rglob('pom.xml'):
+            # Get relative path and extract project path
+            rel_path = pom_file.relative_to(self.cache_dir)
+            # Project path is everything except the last component (pom.xml)
+            project_path = str(rel_path.parent).replace(os.sep, '/')
+            if project_path and project_path != '.':
+                projects.add(project_path)
+        return sorted(projects)
