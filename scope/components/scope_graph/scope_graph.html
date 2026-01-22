@@ -448,7 +448,10 @@
         if (scopeCy) {
             scopeCy.nodes().removeClass('centrality-highlighted');
             nodes.forEach(nodeId => {
-                scopeCy.$('#' + nodeId).addClass('centrality-highlighted');
+                const node = scopeCy.getElementById(nodeId);
+                if (node && node.length > 0) {
+                    node.addClass('centrality-highlighted');
+                }
             });
         }
 
@@ -496,8 +499,8 @@
         if (scopeCy && highlightedNodeKeys.size > 0) {
             scopeCy.nodes().removeClass('centrality-highlighted');
             highlightedNodeKeys.forEach(nodeId => {
-                const node = scopeCy.$('#' + nodeId);
-                if (node.length > 0) {
+                const node = scopeCy.getElementById(nodeId);
+                if (node && node.length > 0) {
                     node.addClass('centrality-highlighted');
                 }
             });
