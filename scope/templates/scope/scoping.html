@@ -120,6 +120,12 @@
     background-color: rgba(255,255,255,0.08);
     outline: 1px solid #0d6efd;
 }
+tr.centrality-highlighted {
+    background-color: rgba(255, 193, 7, 0.2) !important;
+}
+tr.centrality-highlighted td:first-child {
+    border-left: 3px solid #ffc107;
+}
 </style>
 {% endblock %}
 
@@ -224,6 +230,25 @@ window.addEventListener('scope-graph-selection', function(e) {
         }
     });
     updateSelectionCount();
+});
+
+// Track highlighted keys for centrality highlighting
+let highlightedKeys = new Set();
+
+// Listen for centrality highlight changes from graph
+window.addEventListener('centrality-highlight-changed', function(e) {
+    const { highlightedKeys: keys } = e.detail;
+    highlightedKeys = new Set(keys);
+
+    // Apply highlight class to table rows
+    document.querySelectorAll('#project-table tbody tr').forEach(row => {
+        const key = row.dataset.projectKey;
+        if (highlightedKeys.has(key)) {
+            row.classList.add('centrality-highlighted');
+        } else {
+            row.classList.remove('centrality-highlighted');
+        }
+    });
 });
 
 function toggleSelectAll() {

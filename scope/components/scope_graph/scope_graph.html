@@ -1,16 +1,62 @@
 <div id="scope-graph-container">
     <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
-        <div class="btn-group btn-group-sm">
-            <button id="scope-toggle-labels-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleLabels()">Labels</button>
-            <button id="scope-toggle-transitive-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleTransitive()">Transitive</button>
-            <button id="scope-toggle-cycles-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleCycles()">Cycles</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphFit()">Fit</button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphRelayout()">Relayout</button>
+        <div class="d-flex gap-2">
+            <div class="btn-group btn-group-sm">
+                <button id="scope-toggle-labels-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleLabels()">Labels</button>
+                <button id="scope-toggle-transitive-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleTransitive()">Transitive</button>
+                <button id="scope-toggle-cycles-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleCycles()">Cycles</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphFit()">Fit</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphRelayout()">Relayout</button>
+            </div>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="highlightDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    Highlight...
+                </button>
+                <ul class="dropdown-menu" aria-labelledby="highlightDropdown">
+                    <li><a class="dropdown-item" href="#" onclick="openHighlightModal('degree'); return false;">By Degree <small class="text-muted">(direct links)</small></a></li>
+                    <li><a class="dropdown-item" href="#" onclick="openHighlightModal('betweenness'); return false;">By Betweenness <small class="text-muted">(bridge between others)</small></a></li>
+                    <li><a class="dropdown-item" href="#" onclick="openHighlightModal('closeness'); return false;">By Closeness <small class="text-muted">(average distance to all)</small></a></li>
+                    <li><a class="dropdown-item" href="#" onclick="openHighlightModal('eigenvector'); return false;">By Eigenvector <small class="text-muted">(influence via important neighbours)</small></a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="clearHighlight(); return false;">Clear highlight</a></li>
+                </ul>
+            </div>
         </div>
         <small class="text-muted"><span id="scope-graph-count">0</span> nodes</small>
     </div>
     <div id="scope-cy" style="height: {{ height }}; width: 100%;"></div>
     <div id="scope-cy-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 1000;"></div>
+</div>
+
+<!-- Highlight Threshold Modal -->
+<div class="modal fade" id="highlightModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="highlightModalLabel">Highlight by Centrality</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="highlightDescription" class="text-muted small mb-3"></p>
+                <div class="mb-3">
+                    <label for="highlightThreshold" class="form-label">Threshold (percentile)</label>
+                    <input type="range" class="form-range" id="highlightThreshold" min="0" max="100" value="75" oninput="updateThresholdDisplay()">
+                    <div class="d-flex justify-content-between">
+                        <small class="text-muted">0%</small>
+                        <small id="thresholdValue" class="fw-bold">75%</small>
+                        <small class="text-muted">100%</small>
+                    </div>
+                </div>
+                <div class="alert alert-info small py-2" id="highlightPreview">
+                    <span id="highlightPreviewCount">0</span> nodes will be highlighted
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="applyHighlight()">Apply</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
@@ -20,6 +66,12 @@
     let scopeTransitiveVisible = true;
     let scopeCyclesVisible = false;
     let scopeCy = null;
+
+    // Highlight state
+    let currentHighlightMetric = null;
+    let currentHighlightThreshold = 75;
+    let highlightedNodeKeys = new Set();
+    let nodeCentralities = {};
 
     // Get CSRF token from cookie or hidden input
     function getCSRFToken() {
@@ -108,6 +160,14 @@
                         'border-width': 2,
                         'border-color': '#dc3545',
                     }
+                },
+                {
+                    selector: 'node.centrality-highlighted',
+                    style: {
+                        'background-color': '#ffc107',
+                        'border-width': 3,
+                        'border-color': '#ff9800',
+                    }
                 }
             ],
             layout: { name: 'preset' },
@@ -147,6 +207,301 @@
         });
 
         window.scopeGraph = scopeCy;
+    }
+
+    // Centrality calculation functions
+    const centralityDescriptions = {
+        degree: 'Degree centrality counts the number of direct connections (edges) a node has. Nodes with high degree are well-connected hubs.',
+        betweenness: 'Betweenness centrality measures how often a node lies on the shortest path between other nodes. High betweenness nodes act as bridges.',
+        closeness: 'Closeness centrality measures how close a node is to all other nodes (average shortest path distance). High closeness nodes can reach others quickly.',
+        eigenvector: 'Eigenvector centrality measures influence based on connections to other important nodes. High eigenvector nodes are connected to other influential nodes.'
+    };
+
+    function calculateDegreeCentrality() {
+        if (!scopeCy) return {};
+        const centralities = {};
+        scopeCy.nodes().forEach(node => {
+            centralities[node.id()] = node.degree(false); // false = don't include loops
+        });
+        return centralities;
+    }
+
+    function calculateBetweennessCentrality() {
+        if (!scopeCy) return {};
+        const centralities = {};
+        const nodes = scopeCy.nodes();
+        const n = nodes.length;
+
+        // Initialize
+        nodes.forEach(node => {
+            centralities[node.id()] = 0;
+        });
+
+        // Brandes algorithm for betweenness
+        nodes.forEach(source => {
+            const stack = [];
+            const predecessors = {};
+            const sigma = {};
+            const dist = {};
+
+            nodes.forEach(v => {
+                predecessors[v.id()] = [];
+                sigma[v.id()] = 0;
+                dist[v.id()] = -1;
+            });
+
+            sigma[source.id()] = 1;
+            dist[source.id()] = 0;
+
+            const queue = [source];
+            while (queue.length > 0) {
+                const v = queue.shift();
+                stack.push(v);
+
+                v.neighborhood('node').forEach(w => {
+                    // First visit?
+                    if (dist[w.id()] < 0) {
+                        queue.push(w);
+                        dist[w.id()] = dist[v.id()] + 1;
+                    }
+                    // Shortest path to w via v?
+                    if (dist[w.id()] === dist[v.id()] + 1) {
+                        sigma[w.id()] += sigma[v.id()];
+                        predecessors[w.id()].push(v);
+                    }
+                });
+            }
+
+            const delta = {};
+            nodes.forEach(v => {
+                delta[v.id()] = 0;
+            });
+
+            while (stack.length > 0) {
+                const w = stack.pop();
+                predecessors[w.id()].forEach(v => {
+                    delta[v.id()] += (sigma[v.id()] / sigma[w.id()]) * (1 + delta[w.id()]);
+                });
+                if (w.id() !== source.id()) {
+                    centralities[w.id()] += delta[w.id()];
+                }
+            }
+        });
+
+        // Normalize (undirected graph)
+        const factor = n > 2 ? 2 / ((n - 1) * (n - 2)) : 1;
+        Object.keys(centralities).forEach(id => {
+            centralities[id] *= factor;
+        });
+
+        return centralities;
+    }
+
+    function calculateClosenessCentrality() {
+        if (!scopeCy) return {};
+        const centralities = {};
+        const nodes = scopeCy.nodes();
+        const n = nodes.length;
+
+        nodes.forEach(source => {
+            // BFS to find shortest paths
+            const dist = {};
+            nodes.forEach(v => {
+                dist[v.id()] = Infinity;
+            });
+            dist[source.id()] = 0;
+
+            const queue = [source];
+            while (queue.length > 0) {
+                const v = queue.shift();
+                v.neighborhood('node').forEach(w => {
+                    if (dist[w.id()] === Infinity) {
+                        dist[w.id()] = dist[v.id()] + 1;
+                        queue.push(w);
+                    }
+                });
+            }
+
+            // Sum of distances
+            let totalDist = 0;
+            let reachable = 0;
+            Object.values(dist).forEach(d => {
+                if (d !== Infinity && d > 0) {
+                    totalDist += d;
+                    reachable++;
+                }
+            });
+
+            // Closeness = (n-1) / sum of distances (normalized)
+            centralities[source.id()] = reachable > 0 ? reachable / totalDist : 0;
+        });
+
+        return centralities;
+    }
+
+    function calculateEigenvectorCentrality() {
+        if (!scopeCy) return {};
+        const centralities = {};
+        const nodes = scopeCy.nodes();
+        const n = nodes.length;
+
+        if (n === 0) return {};
+
+        // Power iteration method
+        const maxIterations = 100;
+        const tolerance = 1e-6;
+
+        // Initialize with uniform values
+        nodes.forEach(node => {
+            centralities[node.id()] = 1 / n;
+        });
+
+        for (let iter = 0; iter < maxIterations; iter++) {
+            const newCentralities = {};
+            let norm = 0;
+
+            nodes.forEach(node => {
+                let sum = 0;
+                node.neighborhood('node').forEach(neighbor => {
+                    sum += centralities[neighbor.id()];
+                });
+                newCentralities[node.id()] = sum;
+                norm += sum * sum;
+            });
+
+            // Normalize
+            norm = Math.sqrt(norm);
+            if (norm === 0) norm = 1;
+
+            let diff = 0;
+            Object.keys(newCentralities).forEach(id => {
+                newCentralities[id] /= norm;
+                diff += Math.abs(newCentralities[id] - centralities[id]);
+                centralities[id] = newCentralities[id];
+            });
+
+            if (diff < tolerance) break;
+        }
+
+        return centralities;
+    }
+
+    function calculateCentrality(metric) {
+        switch (metric) {
+            case 'degree': return calculateDegreeCentrality();
+            case 'betweenness': return calculateBetweennessCentrality();
+            case 'closeness': return calculateClosenessCentrality();
+            case 'eigenvector': return calculateEigenvectorCentrality();
+            default: return {};
+        }
+    }
+
+    function getNodesAboveThreshold(centralities, percentile) {
+        const values = Object.values(centralities).sort((a, b) => a - b);
+        if (values.length === 0) return [];
+
+        const thresholdIndex = Math.floor((percentile / 100) * values.length);
+        const thresholdValue = values[Math.min(thresholdIndex, values.length - 1)];
+
+        return Object.entries(centralities)
+            .filter(([id, value]) => value >= thresholdValue)
+            .map(([id]) => id);
+    }
+
+    // Modal handling functions
+    window.openHighlightModal = function(metric) {
+        if (!scopeCy || scopeCy.nodes().length === 0) {
+            alert('No nodes in the graph to highlight.');
+            return;
+        }
+
+        currentHighlightMetric = metric;
+        document.getElementById('highlightModalLabel').textContent = 'Highlight by ' + metric.charAt(0).toUpperCase() + metric.slice(1);
+        document.getElementById('highlightDescription').textContent = centralityDescriptions[metric];
+        document.getElementById('highlightThreshold').value = currentHighlightThreshold;
+        document.getElementById('thresholdValue').textContent = currentHighlightThreshold + '%';
+
+        // Calculate centralities and update preview
+        nodeCentralities = calculateCentrality(metric);
+        updateHighlightPreview();
+
+        new bootstrap.Modal(document.getElementById('highlightModal')).show();
+    };
+
+    window.updateThresholdDisplay = function() {
+        const threshold = parseInt(document.getElementById('highlightThreshold').value);
+        document.getElementById('thresholdValue').textContent = threshold + '%';
+        currentHighlightThreshold = threshold;
+        updateHighlightPreview();
+    };
+
+    function updateHighlightPreview() {
+        const nodes = getNodesAboveThreshold(nodeCentralities, currentHighlightThreshold);
+        document.getElementById('highlightPreviewCount').textContent = nodes.length;
+    }
+
+    window.applyHighlight = function() {
+        const nodes = getNodesAboveThreshold(nodeCentralities, currentHighlightThreshold);
+        highlightedNodeKeys = new Set(nodes);
+
+        // Apply highlight class to nodes in graph
+        if (scopeCy) {
+            scopeCy.nodes().removeClass('centrality-highlighted');
+            nodes.forEach(nodeId => {
+                scopeCy.$('#' + nodeId).addClass('centrality-highlighted');
+            });
+        }
+
+        // Dispatch event to sync with list view
+        window.dispatchEvent(new CustomEvent('centrality-highlight-changed', {
+            detail: {
+                highlightedKeys: Array.from(highlightedNodeKeys),
+                metric: currentHighlightMetric,
+                threshold: currentHighlightThreshold
+            }
+        }));
+
+        // Update dropdown button to show active state
+        const btn = document.getElementById('highlightDropdown');
+        if (highlightedNodeKeys.size > 0) {
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add('btn-warning');
+            btn.textContent = 'Highlighted: ' + highlightedNodeKeys.size;
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('highlightModal')).hide();
+    };
+
+    window.clearHighlight = function() {
+        highlightedNodeKeys = new Set();
+
+        if (scopeCy) {
+            scopeCy.nodes().removeClass('centrality-highlighted');
+        }
+
+        // Update dropdown button
+        const btn = document.getElementById('highlightDropdown');
+        btn.classList.remove('btn-warning');
+        btn.classList.add('btn-outline-secondary');
+        btn.textContent = 'Highlight...';
+
+        // Dispatch event to sync with list view
+        window.dispatchEvent(new CustomEvent('centrality-highlight-changed', {
+            detail: { highlightedKeys: [], metric: null, threshold: 0 }
+        }));
+    };
+
+    // Re-apply highlights after graph updates
+    function reapplyHighlights() {
+        if (scopeCy && highlightedNodeKeys.size > 0) {
+            scopeCy.nodes().removeClass('centrality-highlighted');
+            highlightedNodeKeys.forEach(nodeId => {
+                const node = scopeCy.$('#' + nodeId);
+                if (node.length > 0) {
+                    node.addClass('centrality-highlighted');
+                }
+            });
+        }
     }
 
     // Listen for updates from the scoping page
@@ -237,6 +592,9 @@
                 if (!scopeTransitiveVisible) {
                     scopeCy.edges('[?transitive]').hide();
                 }
+
+                // Re-apply centrality highlights
+                reapplyHighlights();
             })
             .catch(err => console.error('Scope graph fetch error:', err));
     });
