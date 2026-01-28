@@ -145,6 +145,13 @@
                     </span>
                 </div>
                 <div class="d-flex flex-wrap gap-2 mt-1">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox"
+                            id="filter-untagged" x-model="filters.include_untagged">
+                        <label class="form-check-label small" for="filter-untagged">
+                            Not tagged (<span class="text-muted">{{ untagged_count }}</span>)
+                        </label>
+                    </div>
                     {% for tag in tags %}
                     <div class="form-check form-check-inline">
                         <input class="form-check-input tag-checkbox" type="checkbox"
@@ -220,6 +227,7 @@ function filterPanel() {
             include_external: {{ current_filter.include_external|yesno:"true,false" }},
             include_ungrouped: true,
             selected_groups: [],
+            include_untagged: true,
             selected_tags: [],
             name_pattern: "{{ current_filter.name_pattern }}",
         },
@@ -296,11 +304,13 @@ function filterPanel() {
 
         selectAllTags() {
             this.filters.selected_tags = [{% for tag in tags %}'{{ tag.name }}'{% if not forloop.last %}, {% endif %}{% endfor %}];
+            this.filters.include_untagged = true;
             document.querySelectorAll('.tag-checkbox').forEach(cb => cb.checked = true);
         },
 
         clearAllTags() {
             this.filters.selected_tags = [];
+            this.filters.include_untagged = false;
             document.querySelectorAll('.tag-checkbox').forEach(cb => cb.checked = false);
         },
 

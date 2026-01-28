@@ -50,6 +50,9 @@ class FilterPanel(Component):
         # Get ungrouped projects count
         ungrouped_count = Project.objects.filter(group__isnull=True).count()
 
+        # Get untagged projects count
+        untagged_count = Project.objects.filter(tags__isnull=True).count()
+
         # Get all tags with counts
         from taggit.models import Tag
         from django.db.models import Count
@@ -146,6 +149,7 @@ class FilterPanel(Component):
             'internal_count': internal_count,
             'external_count': external_count,
             'ungrouped_count': ungrouped_count,
+            'untagged_count': untagged_count,
             'filtered_count': filtered_count,
             'total_count': total_count,
             # Status metadata
@@ -204,14 +208,24 @@ class FilterPanel(Component):
         else:
             queryset = queryset.none()
 
-        # Filter by tags - if tags selected, show projects with those tags or no tags
+        # Filter by tags
         selected_tags = filter_config.get('selected_tags', [])
-        if selected_tags:
-            from django.db.models import Q
-            # Include projects with selected tags OR projects with no tags
+        include_untagged = filter_config.get('include_untagged', True)
+
+        if selected_tags and include_untagged:
+            # Include projects with selected tags OR untagged projects
             queryset = queryset.filter(
                 Q(tags__name__in=selected_tags) | Q(tags__isnull=True)
             )
+        elif selected_tags:
+            # Only projects with selected tags
+            queryset = queryset.filter(tags__name__in=selected_tags)
+        elif include_untagged:
+            # Only untagged projects
+            queryset = queryset.filter(tags__isnull=True)
+        else:
+            # Nothing selected
+            queryset = queryset.none()
 
         # Filter by name pattern
         if filter_config['name_pattern']:
@@ -273,6 +287,7 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
         'selected_groups': data.get('selected_groups', []),
         'include_ungrouped': data.get('include_ungrouped', True),
         'selected_tags': data.get('selected_tags', []),
+        'include_untagged': data.get('include_untagged', True),
         'name_pattern': data.get('name_pattern', ''),
     }
 
@@ -323,13 +338,24 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
         # Nothing selected
         queryset = queryset.none()
 
-    # Filter by tags - if tags selected, show projects with those tags or no tags
+    # Filter by tags
     selected_tags = filter_config.get('selected_tags', [])
-    if selected_tags:
-        from django.db.models import Q
+    include_untagged = filter_config.get('include_untagged', True)
+
+    if selected_tags and include_untagged:
+        # Include projects with selected tags OR untagged projects
         queryset = queryset.filter(
             Q(tags__name__in=selected_tags) | Q(tags__isnull=True)
         )
+    elif selected_tags:
+        # Only projects with selected tags
+        queryset = queryset.filter(tags__name__in=selected_tags)
+    elif include_untagged:
+        # Only untagged projects
+        queryset = queryset.filter(tags__isnull=True)
+    else:
+        # Nothing selected
+        queryset = queryset.none()
 
     # Filter by name pattern
     if filter_config['name_pattern']:
