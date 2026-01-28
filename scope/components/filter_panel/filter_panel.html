@@ -88,35 +88,43 @@
             <!-- Group Filter -->
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center">
-                    <label class="form-label fw-semibold small mb-0">By Group</label>
+                    <a class="form-label fw-semibold small mb-0 text-decoration-none"
+                       data-bs-toggle="collapse" href="#group-filter-collapse" role="button"
+                       aria-expanded="false" aria-controls="group-filter-collapse"
+                       @click="groupsExpanded = !groupsExpanded">
+                        <i class="bi" :class="groupsExpanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                        By Group
+                    </a>
                     <span class="small">
                         <a href="#" @click.prevent="selectAllGroups()">all</a>
                         <span class="text-muted">|</span>
                         <a href="#" @click.prevent="clearAllGroups()">none</a>
                     </span>
                 </div>
-                <div class="d-flex flex-wrap gap-2 mt-1">
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox"
-                            id="filter-ungrouped" x-model="filters.include_ungrouped">
-                        <label class="form-check-label small" for="filter-ungrouped">
-                            Ungrouped (<span class="text-muted">{{ ungrouped_count }}</span>)
-                        </label>
+                <div class="collapse" id="group-filter-collapse">
+                    <div class="d-flex flex-wrap gap-2 mt-1">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox"
+                                id="filter-ungrouped" x-model="filters.include_ungrouped">
+                            <label class="form-check-label small" for="filter-ungrouped">
+                                Ungrouped (<span class="text-muted">{{ ungrouped_count }}</span>)
+                            </label>
+                        </div>
+                        {% for group in groups %}
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input group-checkbox" type="checkbox"
+                                id="group-{{ group.id }}" value="{{ group.id }}"
+                                data-group-id="{{ group.id }}"
+                                :checked="filters.selected_groups.includes('{{ group.id }}')"
+                                @change="toggleGroup('{{ group.id }}', $event.target.checked)">
+                            <label class="form-check-label small" for="group-{{ group.id }}">
+                                {{ group.name }} (<span class="text-muted">{{ group.project_count }}</span>)
+                            </label>
+                        </div>
+                        {% empty %}
+                        <span class="text-muted small">No groups defined</span>
+                        {% endfor %}
                     </div>
-                    {% for group in groups %}
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input group-checkbox" type="checkbox"
-                            id="group-{{ group.id }}" value="{{ group.id }}"
-                            data-group-id="{{ group.id }}"
-                            :checked="filters.selected_groups.includes('{{ group.id }}')"
-                            @change="toggleGroup('{{ group.id }}', $event.target.checked)">
-                        <label class="form-check-label small" for="group-{{ group.id }}">
-                            {{ group.name }} (<span class="text-muted">{{ group.project_count }}</span>)
-                        </label>
-                    </div>
-                    {% empty %}
-                    <span class="text-muted small">No groups defined</span>
-                    {% endfor %}
                 </div>
                 <!-- Hidden select to store values for form compatibility -->
                 <select class="d-none" id="filter-groups" multiple x-model="filters.selected_groups">
@@ -184,6 +192,7 @@
 <script>
 function filterPanel() {
     return {
+        groupsExpanded: false,
         counts: {
             active: {{ status_counts.active }},
             stale: {{ status_counts.stale }},

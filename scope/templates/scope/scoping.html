@@ -17,6 +17,9 @@
         <button class="btn btn-outline-secondary tag-btn" onclick="openTagModal('add')" disabled>Add tag</button>
         <button class="btn btn-outline-secondary tag-btn" onclick="openTagModal('remove')" disabled>Remove tag</button>
     </div>
+    <button class="btn btn-sm btn-outline-warning" onclick="selectHighlighted()" id="select-highlighted-btn" disabled>
+        Select highlighted
+    </button>
     <button class="btn btn-sm btn-primary" onclick="createVisionFromSelection()" id="create-vision-btn" disabled>
         Create vision from <span id="selected-count">0</span> selected
     </button>
@@ -249,7 +252,27 @@ window.addEventListener('centrality-highlight-changed', function(e) {
             row.classList.remove('centrality-highlighted');
         }
     });
+
+    // Enable/disable "Select highlighted" button
+    document.getElementById('select-highlighted-btn').disabled = highlightedKeys.size === 0;
 });
+
+function selectHighlighted() {
+    if (highlightedKeys.size === 0) return;
+
+    // Check all highlighted rows that are visible
+    document.querySelectorAll('#project-table tbody tr').forEach(row => {
+        if (row.style.display === 'none') return;
+        const key = row.dataset.projectKey;
+        const checkbox = row.querySelector('.project-checkbox');
+        if (checkbox && highlightedKeys.has(key)) {
+            checkbox.checked = true;
+        }
+    });
+
+    updateSelectionCount();
+    if (currentView === 'graph') updateScopeGraph();
+}
 
 function toggleSelectAll() {
     const checked = document.getElementById('select-all').checked;

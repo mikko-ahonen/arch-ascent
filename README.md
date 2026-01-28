@@ -121,6 +121,31 @@ python manage.py sync_checkmarx --api-url https://api-sca.eu.checkmarx.net --iam
 | Save | Save node positions and groups |
 | Refresh | Reload graph from database |
 
+### Scoping View
+
+The Scoping view provides tools for analyzing and selecting projects for further work.
+
+#### Centrality Highlighting
+
+Use the **Highlight...** dropdown in the graph view to identify important nodes based on network metrics:
+
+| Metric | Description |
+|--------|-------------|
+| By Degree | Highlights nodes with many direct connections (hubs) |
+| By Betweenness | Highlights nodes that act as bridges between other nodes |
+| By Closeness | Highlights nodes with short average distance to all others |
+| By Eigenvector | Highlights nodes connected to other influential nodes |
+
+The threshold slider (percentile) controls how many nodes are highlighted. Highlights persist when switching between graph and list views. Use **Select highlighted** to check all highlighted rows for bulk actions.
+
+#### Filter Panel
+
+- **By Analysis Status**: Filter by project status (Active, Stale, Dormant, etc.)
+- **By Connectivity**: Filter by graph connectivity (Main cluster, Disconnected, Unused)
+- **By Group**: Filter by project group (collapsed by default, click to expand)
+- **By Tag**: Filter by project tags
+- **By Name Pattern**: Filter using wildcards (e.g., `service-*`, `*-api`)
+
 ### Filtering
 
 Enter filter terms in the search box (comma-separated):
