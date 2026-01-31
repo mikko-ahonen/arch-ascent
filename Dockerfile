@@ -10,6 +10,9 @@ ARG GID=1000
 # ==============================================================================
 FROM python:${PYTHON_VERSION} AS base
 
+ARG UID=1000
+ARG GID=1000
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -53,6 +56,10 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 RUN echo 'export VIRTUAL_ENV=/home/dev/venv' >> "$BASH_ENV" \
     && echo 'export PATH="$VIRTUAL_ENV/bin:$PATH"' >> "$BASH_ENV"
+
+# Make venv available to login shells (.profile is sourced by bash --login)
+RUN echo 'export VIRTUAL_ENV=/home/dev/venv' >> "$HOME/.profile" \
+    && echo 'export PATH="/home/dev/venv/bin:$PATH"' >> "$HOME/.profile"
 
 RUN pip install --upgrade pip setuptools wheel
 
@@ -185,7 +192,7 @@ CMD ["bash"]
 FROM dev AS claude
 
 # Install Claude Code natively
-RUN curl -fsSL https://claude.ai/install.sh | sh \
+RUN curl -fsSL https://claude.ai/install.sh | bash -s latest \
     && echo 'export PATH="$HOME/.claude/bin:$PATH"' >> "$BASH_ENV"
 
 CMD ["bash"]
