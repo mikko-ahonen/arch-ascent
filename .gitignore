@@ -1,3 +1,5 @@
+.env.claude
+.env.dev
 test-results/
 server.log
 # Byte-compiled / optimized / DLL files

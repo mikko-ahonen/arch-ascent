@@ -1,0 +1,15 @@
+#3.3
+# Screen configuration for telamon projects
+startup_message off
+autodetach on
+bell '~bell in window %'
+activity '~activity in window %'
+crlf off
+escape ^@@
+defflow on
+nethack off
+hardstatus on
+defscrollback 4098
+vbell off
+vbell_msg 'ping'
+defwrap on

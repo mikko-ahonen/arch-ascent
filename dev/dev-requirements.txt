@@ -1,0 +1,6 @@
+# Development dependencies for arch-ascent
+playwright
+ruff
+beautifulsoup4
+django-debug-toolbar
+django-template-breakpoint

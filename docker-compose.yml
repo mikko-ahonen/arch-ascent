@@ -1,4 +1,33 @@
+# Telamon-generated docker-compose.yml for arch-ascent
+
 services:
+
+
+  web:
+    stdin_open: true
+    tty: true
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+
+    command: python manage.py runserver 0.0.0.0:8000
+
+    ports:
+      - "8050:8000"
+
+
+
+    volumes:
+      - ./:/src
+    env_file:
+      - .env.dev
+    environment:
+      - DEBUG=True
+      - DJANGO_DEBUG=True
+
+
   claude:
     stdin_open: true
     tty: true
@@ -6,29 +35,22 @@ services:
       context: .
       dockerfile: Dockerfile
       target: claude
+
+
     volumes:
-      - ../../.workspaces/dep:/workspaces
       - ./:/src
+      - ../../.workspaces/arch-ascent:/workspaces
+      - ~/.ssh/id_ed25519:/home/dev/.ssh/id_ed25519:ro
+      - ~/.ssh/known_hosts:/home/dev/.ssh/known_hosts:ro
     environment:
       - DEBUG=True
       - DJANGO_DEBUG=True
+
       - CLAUDE_CONFIG_DIR=/workspaces/claude
-      - GIT_AUTHOR_NAME=Mikko Ahonen
-      - GIT_AUTHOR_EMAIL=mikko@jauzo.com
-      - GIT_COMMITTER_NAME=Mikko Ahonen
-      - GIT_COMMITTER_EMAIL=mikko@jauzo.com
-  web:
-    build: .
-    ports:
-      - "8050:8000"
-    volumes:
-      - .:/src
-    environment:
-      - DEBUG=True
-      - SECRET_KEY=django-insecure-dev-key
-      - ALLOWED_HOSTS=localhost,127.0.0.1
-      - GIT_AUTHOR_NAME=Mikko Ahonen
-      - GIT_AUTHOR_EMAIL=mikko@jauzo.com
-      - GIT_COMMITTER_NAME=Mikko Ahonen
-      - GIT_COMMITTER_EMAIL=mikko@jauzo.com
-    command: python manage.py runserver 0.0.0.0:8000
+      - APP_URL=http://web:8000
+      - GIT_AUTHOR_NAME="Mikko Ahonen"
+      - GIT_AUTHOR_EMAIL="mikko@jauzo.com"
+      - GIT_COMMITTER_NAME="Mikko Ahonen"
+      - GIT_COMMITTER_EMAIL="mikko@jauzo.com"
+    env_file:
+      - .env.claude
