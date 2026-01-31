@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     curl \
     ca-certificates \
     git \
+    openssh-client \
     libffi-dev \
     libmagic1 \
     vim \
@@ -172,7 +173,7 @@ COPY --chown=dev:dev dev/exrc /home/dev/.exrc
 COPY --chown=dev:dev dev/screenrc /home/dev/.screenrc
 
 # Git configuration for SSH key in repo
-RUN echo 'git config --global core.sshCommand "ssh -i /src/id_arch_ascent"' >> "$BASH_ENV" \
+RUN echo 'git config --global core.sshCommand "ssh -i /src/id_ed25519" >> "$BASH_ENV" \
     && echo 'git config --global --add safe.directory /src' >> "$BASH_ENV"
 
 # Useful aliases
