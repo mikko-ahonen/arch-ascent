@@ -4,6 +4,7 @@ Sync project dependencies from GitLab by extracting and parsing pom.xml files.
 Phase 1: Extract all pom.xml files from visible GitLab projects (cached locally)
 Phase 2: Parse cached pom.xml files to create projects, groups, and dependencies
 """
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from dependencies.models import Project, Dependency, NodeGroup
-from dependencies.service import GitLabService, DEFAULT_POM_CACHE_DIR
+from dependencies.service import GitLabService, GitLabProject, DEFAULT_POM_CACHE_DIR
 
 
 class Command(BaseCommand):
@@ -71,6 +72,16 @@ class Command(BaseCommand):
             action='store_true',
             help='Show what would be done without making changes',
         )
+        parser.add_argument(
+            '--projects-file',
+            type=str,
+            help='JSON file for project list (default: <cache-dir>/projects.json)',
+        )
+        parser.add_argument(
+            '--skip-fetch-projects',
+            action='store_true',
+            help='Skip fetching project list from GitLab, use existing projects.json',
+        )
 
     def handle(self, *args, **options):
         # Determine which phases to run
@@ -103,16 +114,38 @@ class Command(BaseCommand):
             request_delay=options.get('request_delay'),
         )
 
+        # Determine projects file path
+        projects_file = options.get('projects_file')
+        if projects_file:
+            projects_file = Path(projects_file)
+        else:
+            projects_file = cache_dir / 'projects.json'
+
+        skip_fetch = options.get('skip_fetch_projects', False)
         use_cache = not options['no_cache']
-        extracted = 0
-        skipped_cached = 0
-        skipped_no_pom = 0
-        errors = 0
 
         with service:
-            self.stdout.write('Fetching project list from GitLab...')
-            projects = list(service.get_projects())
-            self.stdout.write(f'Found {len(projects)} projects')
+            # Step 1: Get project list (from API or file)
+            if skip_fetch:
+                if not projects_file.exists():
+                    self.stderr.write(self.style.ERROR(
+                        f'Projects file not found: {projects_file}\n'
+                        f'Run without --skip-fetch-projects first to fetch the project list.'
+                    ))
+                    return
+                self.stdout.write(f'Loading project list from {projects_file}...')
+                projects = self._load_projects_from_file(projects_file)
+                self.stdout.write(f'Loaded {len(projects)} projects from file')
+            else:
+                self.stdout.write('Fetching project list from GitLab...')
+                projects = self._fetch_and_save_projects(service, projects_file)
+                self.stdout.write(f'Fetched {len(projects)} projects, saved to {projects_file}')
+
+            # Step 2: Process each project
+            extracted = 0
+            skipped_cached = 0
+            skipped_no_pom = 0
+            errors = 0
 
             for i, project in enumerate(projects, 1):
                 project_path = project.path_with_namespace
@@ -140,6 +173,53 @@ class Command(BaseCommand):
         self.stdout.write(f'  Already cached: {skipped_cached}')
         self.stdout.write(f'  No pom.xml: {skipped_no_pom}')
         self.stdout.write(f'  Errors: {errors}')
+
+    def _fetch_and_save_projects(self, service: GitLabService, projects_file: Path) -> list[GitLabProject]:
+        """Fetch all projects from GitLab and save to JSON file."""
+        projects = []
+        projects_data = []
+
+        for project in service.get_projects():
+            projects.append(project)
+            projects_data.append({
+                'id': project.id,
+                'name': project.name,
+                'path': project.path,
+                'path_with_namespace': project.path_with_namespace,
+                'description': project.description,
+                'default_branch': project.default_branch,
+                'namespace': project.namespace,
+                'web_url': project.web_url,
+            })
+            # Progress indicator every 100 projects
+            if len(projects) % 100 == 0:
+                self.stdout.write(f'  Fetched {len(projects)} projects...')
+
+        # Save to file
+        projects_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(projects_file, 'w') as f:
+            json.dump(projects_data, f, indent=2)
+
+        return projects
+
+    def _load_projects_from_file(self, projects_file: Path) -> list[GitLabProject]:
+        """Load projects from JSON file."""
+        with open(projects_file) as f:
+            projects_data = json.load(f)
+
+        return [
+            GitLabProject(
+                id=p['id'],
+                name=p['name'],
+                path=p['path'],
+                path_with_namespace=p['path_with_namespace'],
+                description=p.get('description', ''),
+                default_branch=p.get('default_branch', 'main'),
+                namespace=p.get('namespace', {}),
+                web_url=p.get('web_url', ''),
+            )
+            for p in projects_data
+        ]
 
     def phase_2_process(self, options, cache_dir: Path):
         """Phase 2: Process cached pom.xml files to create projects and dependencies."""
