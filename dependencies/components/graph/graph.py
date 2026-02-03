@@ -377,11 +377,105 @@ def find_cycles_rocha_thatte(adjacency: dict[str, set[str]], max_iterations: int
     return cycles
 
 
+def enumerate_cycles(
+    adjacency: dict[str, set[str]],
+    max_cycles: int = 100,
+    max_length: int = 10,
+    timeout: float = None
+) -> list[list[str]]:
+    """
+    Enumerate individual cycles in the graph, limited for performance.
+
+    Uses Johnson's algorithm within each SCC to find elementary cycles.
+
+    Args:
+        adjacency: Graph as adjacency list
+        max_cycles: Maximum number of cycles to return
+        max_length: Maximum cycle length to consider
+        timeout: Maximum time in seconds
+
+    Returns:
+        List of cycles, each cycle is a list of node IDs in order
+    """
+    if timeout is None:
+        timeout = 2.0
+
+    start_time = time.time()
+    cycles = []
+
+    # Find SCCs - cycles only exist within SCCs
+    sccs = find_sccs_kosaraju(adjacency, timeout=timeout / 2)
+
+    # Filter to SCCs with 2+ nodes (can have cycles)
+    cyclic_sccs = [scc for scc in sccs if len(scc) >= 2]
+
+    for scc in cyclic_sccs:
+        if time.time() - start_time > timeout or len(cycles) >= max_cycles:
+            break
+
+        scc_set = set(scc)
+
+        # Build subgraph for this SCC
+        subgraph = {}
+        for node in scc:
+            neighbors = adjacency.get(node, set()) & scc_set
+            if neighbors:
+                subgraph[node] = neighbors
+
+        # Find cycles using DFS within this SCC
+        # Johnson's algorithm simplified
+        for start_node in scc:
+            if time.time() - start_time > timeout or len(cycles) >= max_cycles:
+                break
+
+            # DFS to find cycles starting from start_node
+            stack = [(start_node, [start_node], {start_node})]
+
+            while stack and len(cycles) < max_cycles:
+                if time.time() - start_time > timeout:
+                    break
+
+                node, path, visited = stack.pop()
+
+                if len(path) > max_length:
+                    continue
+
+                for neighbor in subgraph.get(node, set()):
+                    if neighbor == start_node and len(path) >= 2:
+                        # Found a cycle back to start
+                        cycles.append(path[:])
+                        if len(cycles) >= max_cycles:
+                            break
+                    elif neighbor not in visited and neighbor > start_node:
+                        # Only explore nodes > start_node to avoid duplicates
+                        new_visited = visited | {neighbor}
+                        stack.append((neighbor, path + [neighbor], new_visited))
+
+    # Validate cycles - ensure all edges exist
+    valid_cycles = []
+    for cycle in cycles:
+        is_valid = True
+        for i in range(len(cycle)):
+            source = cycle[i]
+            target = cycle[(i + 1) % len(cycle)]
+            if target not in adjacency.get(source, set()):
+                is_valid = False
+                break
+        if is_valid:
+            valid_cycles.append(cycle)
+
+    # Sort cycles by length
+    valid_cycles.sort(key=len)
+
+    return valid_cycles
+
+
 def get_cycle_edges(adjacency: dict[str, set[str]], timeout: float = None) -> set[tuple[str, str]]:
     """
     Find all edges that are part of any cycle using SCC detection.
 
-    An edge is in a cycle if both endpoints are in the same SCC of size >= 2.
+    An edge is in a cycle if both endpoints are in the same SCC of size >= 2,
+    or if it's a self-loop.
     This is much faster than enumerating all cycles (O(V+E) vs exponential).
 
     Returns a set of (source, target) tuples.
@@ -391,12 +485,19 @@ def get_cycle_edges(adjacency: dict[str, set[str]], timeout: float = None) -> se
 
     start_time = time.time()
 
+    cycle_edges = set()
+
+    # First, detect self-loops (A -> A) - these are cycles of length 1
+    for source, targets in adjacency.items():
+        if source in targets:
+            cycle_edges.add((source, source))
+
     # Find SCCs using Kosaraju's algorithm
     sccs = find_sccs_kosaraju(adjacency, timeout=timeout)
 
     # Check timeout
     if time.time() - start_time > timeout:
-        return set()
+        return cycle_edges  # Return at least the self-loops we found
 
     # Build a mapping from node to its SCC (only for SCCs with cycles)
     node_to_scc = {}
@@ -406,7 +507,6 @@ def get_cycle_edges(adjacency: dict[str, set[str]], timeout: float = None) -> se
                 node_to_scc[node] = scc_idx
 
     # An edge is in a cycle if both endpoints are in the same multi-node SCC
-    cycle_edges = set()
     for source, targets in adjacency.items():
         source_scc = node_to_scc.get(source)
         if source_scc is not None:

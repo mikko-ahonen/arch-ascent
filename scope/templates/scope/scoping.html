@@ -43,7 +43,7 @@
                             <a class="nav-link py-1 px-3" id="graph-tab" href="#" onclick="switchToGraphView(event)">Graph</a>
                         </li>
                     </ul>
-                    <small class="text-muted"><span id="checked-count">0</span> / <span id="project-list-count">{{ project_count }}</span></small>
+                    <small class="text-muted"><span id="checked-count">0</span> / <span id="project-list-count">{{ project_count }}</span><span id="cycle-count-display" style="display: none;"> - <span id="header-cycle-count" class="text-danger">0</span></span></small>
                 </div>
             </div>
             <div class="card-body p-0">
@@ -233,6 +233,19 @@ window.addEventListener('scope-graph-selection', function(e) {
         }
     });
     updateSelectionCount();
+});
+
+// Listen for cycle count updates from graph
+window.addEventListener('scope-cycle-count', function(e) {
+    const { count } = e.detail;
+    const display = document.getElementById('cycle-count-display');
+    const countSpan = document.getElementById('header-cycle-count');
+    if (count > 0) {
+        countSpan.textContent = count;
+        display.style.display = 'inline';
+    } else {
+        display.style.display = 'none';
+    }
 });
 
 // Track highlighted keys for centrality highlighting

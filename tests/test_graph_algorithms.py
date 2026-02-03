@@ -13,6 +13,8 @@ from dependencies.components.graph.graph import (
     calculate_all_metrics,
     find_sccs_kosaraju,
     louvain_communities,
+    get_cycle_edges,
+    enumerate_cycles,
 )
 
 
@@ -312,3 +314,192 @@ class TestLouvainCommunities:
 
         expected = {'A', 'B', 'C', 'D', 'E', 'F'}
         assert all_nodes == expected
+
+
+class TestGetCycleEdges:
+    """Tests for get_cycle_edges function."""
+
+    def test_dag_has_no_cycle_edges(self, sample_adjacency):
+        """Test that DAG has no cycle edges."""
+        cycle_edges = get_cycle_edges(sample_adjacency)
+        assert len(cycle_edges) == 0
+
+    def test_simple_cycle_detected(self):
+        """Test that a simple 2-node cycle is detected."""
+        adjacency = {
+            'A': {'B'},
+            'B': {'A'},  # A <-> B cycle
+        }
+        cycle_edges = get_cycle_edges(adjacency)
+
+        assert ('A', 'B') in cycle_edges
+        assert ('B', 'A') in cycle_edges
+        assert len(cycle_edges) == 2
+
+    def test_three_node_cycle_detected(self):
+        """Test that a 3-node cycle is detected."""
+        adjacency = {
+            'A': {'B'},
+            'B': {'C'},
+            'C': {'A'},  # A -> B -> C -> A
+        }
+        cycle_edges = get_cycle_edges(adjacency)
+
+        assert ('A', 'B') in cycle_edges
+        assert ('B', 'C') in cycle_edges
+        assert ('C', 'A') in cycle_edges
+        assert len(cycle_edges) == 3
+
+    def test_longer_cycle_detected(self):
+        """Test that a 4-node cycle is detected."""
+        adjacency = {
+            'A': {'B'},
+            'B': {'C'},
+            'C': {'D'},
+            'D': {'A'},  # A -> B -> C -> D -> A
+        }
+        cycle_edges = get_cycle_edges(adjacency)
+
+        assert ('A', 'B') in cycle_edges
+        assert ('B', 'C') in cycle_edges
+        assert ('C', 'D') in cycle_edges
+        assert ('D', 'A') in cycle_edges
+        assert len(cycle_edges) == 4
+
+    def test_multiple_cycles_detected(self, cyclic_adjacency):
+        """Test that multiple independent cycles are detected."""
+        cycle_edges = get_cycle_edges(cyclic_adjacency)
+
+        # Should detect edges in both cycles:
+        # Cycle 1: A -> B -> C -> A
+        # Cycle 2: D -> E -> F -> D
+        assert ('A', 'B') in cycle_edges
+        assert ('B', 'C') in cycle_edges
+        assert ('C', 'A') in cycle_edges
+        assert ('D', 'E') in cycle_edges
+        assert ('E', 'F') in cycle_edges
+        assert ('F', 'D') in cycle_edges
+
+    def test_self_loop_detected(self):
+        """Test that self-loops are detected as cycles."""
+        adjacency = {
+            'A': {'A'},  # Self-loop
+            'B': set(),
+        }
+        cycle_edges = get_cycle_edges(adjacency)
+
+        assert ('A', 'A') in cycle_edges
+        assert len(cycle_edges) == 1
+
+    def test_mixed_cycle_and_dag_edges(self):
+        """Test graph with both cycle and non-cycle edges."""
+        adjacency = {
+            'A': {'B', 'X'},
+            'B': {'C'},
+            'C': {'A'},  # Cycle: A -> B -> C -> A
+            'X': {'Y'},  # DAG branch
+            'Y': set(),
+        }
+        cycle_edges = get_cycle_edges(adjacency)
+
+        # Cycle edges should be detected
+        assert ('A', 'B') in cycle_edges
+        assert ('B', 'C') in cycle_edges
+        assert ('C', 'A') in cycle_edges
+
+        # DAG edges should not be in cycle_edges
+        assert ('A', 'X') not in cycle_edges
+        assert ('X', 'Y') not in cycle_edges
+
+    def test_empty_graph(self):
+        """Test empty graph has no cycle edges."""
+        cycle_edges = get_cycle_edges({})
+        assert len(cycle_edges) == 0
+
+
+class TestEnumerateCycles:
+    """Tests for enumerate_cycles function."""
+
+    def test_dag_has_no_cycles(self, sample_adjacency):
+        """Test that DAG has no cycles."""
+        cycles = enumerate_cycles(sample_adjacency)
+        assert len(cycles) == 0
+
+    def test_simple_cycle_enumerated(self):
+        """Test that a simple 3-node cycle is enumerated."""
+        adjacency = {
+            'A': {'B'},
+            'B': {'C'},
+            'C': {'A'},
+        }
+        cycles = enumerate_cycles(adjacency)
+
+        assert len(cycles) == 1
+        assert set(cycles[0]) == {'A', 'B', 'C'}
+        assert len(cycles[0]) == 3
+
+    def test_longer_cycle_enumerated(self):
+        """Test that a longer cycle is enumerated."""
+        adjacency = {
+            'A': {'B'},
+            'B': {'C'},
+            'C': {'D'},
+            'D': {'E'},
+            'E': {'A'},
+        }
+        cycles = enumerate_cycles(adjacency, max_length=10)
+
+        assert len(cycles) >= 1
+        assert len(cycles[0]) == 5
+
+    def test_multiple_cycles_enumerated(self, cyclic_adjacency):
+        """Test that multiple cycles are found."""
+        cycles = enumerate_cycles(cyclic_adjacency, max_cycles=10)
+
+        # Should find at least 2 cycles (A->B->C->A and D->E->F->D)
+        assert len(cycles) >= 2
+
+    def test_max_cycles_limit(self):
+        """Test that max_cycles parameter limits results."""
+        # Create a graph with many cycles
+        adjacency = {
+            'A': {'B', 'C', 'D'},
+            'B': {'A', 'C'},
+            'C': {'A', 'B'},
+            'D': {'A'},
+        }
+        cycles = enumerate_cycles(adjacency, max_cycles=2)
+
+        assert len(cycles) <= 2
+
+    def test_max_length_limit(self):
+        """Test that max_length parameter limits cycle length."""
+        adjacency = {
+            'A': {'B'},
+            'B': {'C'},
+            'C': {'D'},
+            'D': {'E'},
+            'E': {'F'},
+            'F': {'A'},  # 6-node cycle
+        }
+        # Only look for cycles up to length 4
+        cycles = enumerate_cycles(adjacency, max_length=4)
+        assert len(cycles) == 0
+
+        # Now look for longer cycles
+        cycles = enumerate_cycles(adjacency, max_length=10)
+        assert len(cycles) >= 1
+
+    def test_cycles_sorted_by_length(self):
+        """Test that cycles are sorted by length."""
+        adjacency = {
+            'A': {'B', 'C'},
+            'B': {'A', 'C'},  # A-B-A is 2-node cycle
+            'C': {'D'},
+            'D': {'A'},  # A-C-D-A is 3-node cycle
+        }
+        cycles = enumerate_cycles(adjacency, max_cycles=10)
+
+        # Cycles should be sorted by length
+        for i in range(1, len(cycles)):
+            assert len(cycles[i]) >= len(cycles[i-1])

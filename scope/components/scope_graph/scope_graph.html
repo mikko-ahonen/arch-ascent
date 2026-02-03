@@ -2,9 +2,17 @@
     <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
         <div class="d-flex gap-2">
             <div class="btn-group btn-group-sm">
-                <button id="scope-toggle-labels-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleLabels()">Labels</button>
-                <button id="scope-toggle-transitive-btn" class="btn btn-outline-secondary active btn-sm" onclick="scopeGraphToggleTransitive()">Transitive</button>
-                <button id="scope-toggle-cycles-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleCycles()">Cycles</button>
+                <button id="scope-toggle-labels-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleLabels()">Labels</button>
+                <button id="scope-toggle-edges-btn" class="btn btn-outline-secondary btn-sm active" onclick="scopeGraphToggleEdges()">Edges</button>
+                <button id="scope-toggle-transitive-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleTransitive()">Transitive</button>
+                <div class="btn-group">
+                    <button id="scope-toggle-cycles-btn" class="btn btn-outline-secondary btn-sm" onclick="scopeGraphToggleCycles()">Cycles</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" id="scope-cycles-dropdown-btn" style="display: none;">
+                        <span class="visually-hidden">Toggle Dropdown</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="scope-cycles-list" style="max-height: 300px; overflow-y: auto;">
+                    </ul>
+                </div>
                 <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphFit()">Fit</button>
                 <button class="btn btn-outline-secondary btn-sm" onclick="scopeGraphRelayout()">Relayout</button>
             </div>
@@ -24,7 +32,15 @@
         </div>
         <small class="text-muted"><span id="scope-graph-count">0</span> nodes</small>
     </div>
-    <div id="scope-cy" style="height: {{ height }}; width: 100%;"></div>
+    <div id="scope-cy-wrapper" style="height: {{ height }}; width: 100%; position: relative;">
+        <div id="scope-cy" style="height: 100%; width: 100%;"></div>
+        <div id="scope-loading-overlay" style="display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center;">
+            <div class="text-center text-white">
+                <div class="spinner-border mb-2" role="status"></div>
+                <div id="scope-loading-text">Loading graph...</div>
+            </div>
+        </div>
+    </div>
     <div id="scope-cy-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 1000;"></div>
 </div>
 
@@ -62,10 +78,17 @@
 <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
 <script>
 (function() {
-    let scopeLabelsVisible = true;
-    let scopeTransitiveVisible = true;
+    let scopeLabelsVisible = false;  // Default off for performance
+    let scopeEdgesVisible = true;  // Edges on by default, but hidden for very large graphs
+    let scopeTransitiveVisible = false;  // Default off for cleaner view
     let scopeCyclesVisible = false;
     let scopeCy = null;
+    let currentCycles = [];  // List of cycles from backend
+    let shownCycleIndex = -1;  // Currently shown individual cycle
+    let cyclesLoaded = false;  // Track if cycles have been fetched
+    let currentVisibleKeys = [];  // Track current keys for lazy loading
+    let deferredEdges = null;  // Store edges for lazy loading on very large graphs
+    let edgesDeferred = false;  // Track if edges were deferred
 
     // Highlight state
     let currentHighlightMetric = null;
@@ -107,7 +130,7 @@
                     selector: 'node',
                     style: {
                         'background-color': '#0d6efd',
-                        'label': 'data(label)',
+                        'label': '',  // Labels off by default for performance
                         'color': '#e0e0e0',
                         'text-outline-color': '#1a1a1a',
                         'text-outline-width': 2,
@@ -159,6 +182,25 @@
                     style: {
                         'border-width': 2,
                         'border-color': '#dc3545',
+                    }
+                },
+                {
+                    selector: 'edge.single-cycle-highlighted',
+                    style: {
+                        'line-color': '#fd7e14',
+                        'target-arrow-color': '#fd7e14',
+                        'width': 3,
+                        'opacity': 1,
+                        'z-index': 999,
+                    }
+                },
+                {
+                    selector: 'node.single-cycle-highlighted',
+                    style: {
+                        'background-color': '#fd7e14',
+                        'border-width': 3,
+                        'border-color': '#dc3545',
+                        'z-index': 999,
                     }
                 },
                 {
@@ -525,7 +567,17 @@
                 scopeCy.elements().remove();
                 document.getElementById('scope-graph-count').textContent = '0';
             }
+            // Clear cycle count in header
+            window.dispatchEvent(new CustomEvent('scope-cycle-count', { detail: { count: 0 } }));
             return;
+        }
+
+        // Show loading overlay for large graphs (show early to give feedback)
+        const loadingOverlay = document.getElementById('scope-loading-overlay');
+        const loadingText = document.getElementById('scope-loading-text');
+        if (visibleKeys.length > 100) {
+            loadingOverlay.style.display = 'flex';
+            loadingText.textContent = `Loading ${visibleKeys.length} nodes...`;
         }
 
         // Fetch graph data for visible keys
@@ -543,63 +595,165 @@
             .then(r => r.json())
             .then(data => {
                 console.log('Scope graph data:', data.nodes?.length, 'nodes,', data.edges?.length, 'edges');
-                console.log('Sample node:', data.nodes?.[0]);
 
-                const container = document.getElementById('scope-cy');
-                console.log('Container dimensions:', container?.offsetWidth, 'x', container?.offsetHeight);
-
-                // Clear and reload
-                scopeCy.elements().remove();
-                scopeCy.add([...data.nodes, ...data.edges]);
-                console.log('Elements added, total:', scopeCy.elements().length);
-
-                // Resize to ensure container dimensions are correct
-                scopeCy.resize();
-
-                // Apply layout
-                if (data.has_positions) {
-                    console.log('Using preset layout');
-                    scopeCy.layout({ name: 'preset', padding: 30 }).run();
-                } else {
-                    console.log('Using cose layout');
-                    scopeCy.layout({
-                        name: 'cose',
-                        animate: false,
-                        nodeRepulsion: 400000,
-                        idealEdgeLength: 400,
-                        edgeElasticity: 400,
-                        padding: 100,
-                        randomize: true,
-                        componentSpacing: 200,
-                        nodeOverlap: 100,
-                    }).run();
+                const nodeCount = data.nodes?.length || 0;
+                if (nodeCount > 200) {
+                    loadingText.textContent = `Rendering ${nodeCount} nodes...`;
                 }
 
-                scopeCy.fit(30);
-                console.log('After fit, zoom:', scopeCy.zoom(), 'pan:', scopeCy.pan());
+                // Break up work into chunks to keep UI responsive
+                // Step 1: Clear existing elements
+                setTimeout(() => {
+                    scopeCy.elements().remove();
 
-                // Update count
-                document.getElementById('scope-graph-count').textContent = data.nodes.length;
-
-                // Restore selection state
-                if (selectedKeys && selectedKeys.length > 0) {
-                    const selectedSet = new Set(selectedKeys);
-                    scopeCy.nodes().forEach(node => {
-                        if (selectedSet.has(node.id())) {
-                            node.select();
+                    // Step 2: Add nodes (in batches for very large graphs)
+                    setTimeout(() => {
+                        if (nodeCount > 200) {
+                            loadingText.textContent = `Adding ${nodeCount} nodes...`;
                         }
-                    });
-                }
 
-                // Restore visibility settings
-                if (!scopeTransitiveVisible) {
-                    scopeCy.edges('[?transitive]').hide();
-                }
+                        // Use batch mode for better performance
+                        scopeCy.batch(() => {
+                            scopeCy.add(data.nodes);
+                        });
 
-                // Re-apply centrality highlights
-                reapplyHighlights();
+                        // Step 3: Add edges after nodes (defer for very large graphs)
+                        setTimeout(() => {
+                            // For very large graphs, defer edge addition until user requests
+                            if (nodeCount > 1000) {
+                                console.log('Deferring', data.edges?.length || 0, 'edges for performance');
+                                deferredEdges = data.edges;
+                                edgesDeferred = true;
+                            } else {
+                                if (nodeCount > 200) {
+                                    loadingText.textContent = `Adding ${data.edges?.length || 0} edges...`;
+                                }
+                                scopeCy.batch(() => {
+                                    scopeCy.add(data.edges);
+                                });
+                                deferredEdges = null;
+                                edgesDeferred = false;
+                            }
+                            console.log('Elements added, total:', scopeCy.elements().length);
+
+                            // Step 4: Layout and finalize
+                            setTimeout(() => {
+                                if (nodeCount > 200) {
+                                    loadingText.textContent = `Laying out ${nodeCount} nodes...`;
+                                }
+
+                                // Resize to ensure container dimensions are correct
+                                scopeCy.resize();
+
+                                // Apply layout - use fast layout for large graphs
+                                if (data.has_positions) {
+                                    console.log('Using preset layout');
+                                    scopeCy.layout({ name: 'preset', padding: 30 }).run();
+                                } else if (nodeCount > 500) {
+                                    // For large graphs, use fast grid layout
+                                    console.log('Using grid layout for', nodeCount, 'nodes');
+                                    scopeCy.layout({
+                                        name: 'grid',
+                                        animate: false,
+                                        padding: 30,
+                                        avoidOverlapPadding: 10,
+                                        condense: true,
+                                    }).run();
+                                } else if (nodeCount > 100) {
+                                    // For medium graphs, use concentric layout (faster than cose)
+                                    console.log('Using concentric layout for', nodeCount, 'nodes');
+                                    scopeCy.layout({
+                                        name: 'concentric',
+                                        animate: false,
+                                        padding: 30,
+                                        minNodeSpacing: 50,
+                                    }).run();
+                                } else {
+                                    // For small graphs, use cose for nice layout
+                                    console.log('Using cose layout for', nodeCount, 'nodes');
+                                    scopeCy.layout({
+                                        name: 'cose',
+                                        animate: false,
+                                        nodeRepulsion: 400000,
+                                        idealEdgeLength: 100,
+                                        edgeElasticity: 100,
+                                        padding: 50,
+                                        randomize: false,
+                                    }).run();
+                                }
+
+                                scopeCy.fit(30);
+                                console.log('After fit, zoom:', scopeCy.zoom(), 'pan:', scopeCy.pan());
+
+                                // Update count
+                                document.getElementById('scope-graph-count').textContent = data.nodes.length;
+
+                                // Update cycle edge count (cycles loaded lazily)
+                                const cycleEdgeCount = data.cycle_edge_count || 0;
+                                const cyclesDropdownBtn = document.getElementById('scope-cycles-dropdown-btn');
+
+                                currentVisibleKeys = visibleKeys;
+                                cyclesLoaded = false;
+                                currentCycles = [];
+
+                                // Dispatch cycle count to header
+                                window.dispatchEvent(new CustomEvent('scope-cycle-count', {
+                                    detail: { count: cycleEdgeCount }
+                                }));
+
+                                if (cycleEdgeCount > 0) {
+                                    cyclesDropdownBtn.style.display = 'inline-block';
+                                    // Reset dropdown - will be populated on click
+                                    document.getElementById('scope-cycles-list').innerHTML = '<li><a class="dropdown-item text-muted" href="#">Loading cycles...</a></li>';
+                                } else {
+                                    cyclesDropdownBtn.style.display = 'none';
+                                }
+                                shownCycleIndex = -1;
+
+                                // Restore selection state
+                                if (selectedKeys && selectedKeys.length > 0) {
+                                    const selectedSet = new Set(selectedKeys);
+                                    scopeCy.nodes().forEach(node => {
+                                        if (selectedSet.has(node.id())) {
+                                            node.select();
+                                        }
+                                    });
+                                }
+
+                                // For very large graphs, hide edges by default for performance
+                                if (nodeCount > 500 || edgesDeferred) {
+                                    scopeEdgesVisible = false;
+                                    if (!edgesDeferred) {
+                                        scopeCy.edges().hide();
+                                    }
+                                    document.getElementById('scope-toggle-edges-btn').classList.remove('active');
+                                } else {
+                                    // Restore visibility settings
+                                    if (!scopeTransitiveVisible) {
+                                        scopeCy.edges('[?transitive]').hide();
+                                    }
+                                }
+
+                                // Re-apply centrality highlights
+                                reapplyHighlights();
+
+                                // Set up lazy loading for cycles dropdown
+                                const cyclesDropdown = document.getElementById('scope-cycles-dropdown-btn');
+                                if (cyclesDropdown) {
+                                    cyclesDropdown.addEventListener('click', loadCyclesLazily, { once: true });
+                                }
+
+                                // Hide loading overlay
+                                loadingOverlay.style.display = 'none';
+                            }, 0); // Step 4: layout
+                        }, 0); // Step 3: add edges
+                    }, 0); // Step 2: add nodes
+                }, 0); // Step 1: clear
             })
-            .catch(err => console.error('Scope graph fetch error:', err));
+            .catch(err => {
+                console.error('Scope graph fetch error:', err);
+                loadingOverlay.style.display = 'none';
+            });
     });
 
     // Expose functions globally
@@ -616,12 +770,53 @@
         }
     };
 
+    window.scopeGraphToggleEdges = function() {
+        if (!scopeCy) return;
+        scopeEdgesVisible = !scopeEdgesVisible;
+        const btn = document.getElementById('scope-toggle-edges-btn');
+        if (scopeEdgesVisible) {
+            // Add deferred edges if they exist
+            if (edgesDeferred && deferredEdges) {
+                const loadingOverlay = document.getElementById('scope-loading-overlay');
+                const loadingText = document.getElementById('scope-loading-text');
+                loadingOverlay.style.display = 'flex';
+                loadingText.textContent = `Adding ${deferredEdges.length} edges...`;
+
+                setTimeout(() => {
+                    scopeCy.batch(() => {
+                        scopeCy.add(deferredEdges);
+                    });
+                    deferredEdges = null;
+                    edgesDeferred = false;
+
+                    // Apply visibility
+                    if (!scopeTransitiveVisible) {
+                        scopeCy.edges('[?transitive]').hide();
+                    }
+                    loadingOverlay.style.display = 'none';
+                }, 0);
+            } else {
+                scopeCy.edges().show();
+                // Re-apply transitive filter
+                if (!scopeTransitiveVisible) {
+                    scopeCy.edges('[?transitive]').hide();
+                }
+            }
+            btn.classList.add('active');
+        } else {
+            scopeCy.edges().hide();
+            btn.classList.remove('active');
+        }
+    };
+
     window.scopeGraphToggleTransitive = function() {
         if (!scopeCy) return;
         scopeTransitiveVisible = !scopeTransitiveVisible;
         const btn = document.getElementById('scope-toggle-transitive-btn');
         if (scopeTransitiveVisible) {
-            scopeCy.edges('[?transitive]').show();
+            if (scopeEdgesVisible) {
+                scopeCy.edges('[?transitive]').show();
+            }
             btn.classList.add('active');
         } else {
             scopeCy.edges('[?transitive]').hide();
@@ -671,6 +866,187 @@
             componentSpacing: 200,
             nodeOverlap: 100,
         }).run();
+    };
+
+    // Lazy load cycles from backend
+    function loadCyclesLazily() {
+        if (cyclesLoaded || !currentVisibleKeys.length) return;
+
+        const cyclesList = document.getElementById('scope-cycles-list');
+        cyclesList.innerHTML = '<li><a class="dropdown-item text-muted" href="#"><span class="spinner-border spinner-border-sm me-2"></span>Loading...</a></li>';
+
+        fetch('/htmx/scope-graph/cycles/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify({ keys: currentVisibleKeys })
+        })
+        .then(r => r.json())
+        .then(data => {
+            currentCycles = data.cycles || [];
+            cyclesLoaded = true;
+
+            // Log debug info
+            if (data.debug) {
+                console.log('Cycles debug:', JSON.stringify(data.debug, null, 2));
+                if (data.debug.invalid_cycles && data.debug.invalid_cycles.length > 0) {
+                    console.error('Invalid cycles found:', JSON.stringify(data.debug.invalid_cycles, null, 2));
+                }
+            }
+
+            // Populate dropdown
+            cyclesList.innerHTML = '<li><a class="dropdown-item" href="#" onclick="showAllCycles(); return false;"><strong>Show all cycles</strong></a></li>';
+            if (currentCycles.length > 0) {
+                cyclesList.innerHTML += '<li><hr class="dropdown-divider"></li>';
+                currentCycles.forEach((cycle, idx) => {
+                    const cycleLabel = cycle.map(n => n.split(':').pop().split('-')[0]).join(' → ');
+                    const li = document.createElement('li');
+                    li.innerHTML = `<a class="dropdown-item small" href="#" onclick="showSingleCycle(${idx}); return false;" title="${cycle.join(' → ')}"><span class="badge bg-secondary me-1">${cycle.length}</span>${cycleLabel}</a>`;
+                    cyclesList.appendChild(li);
+                });
+            } else {
+                cyclesList.innerHTML += '<li><a class="dropdown-item text-muted small" href="#">No individual cycles found</a></li>';
+            }
+        })
+        .catch(err => {
+            console.error('Failed to load cycles:', err);
+            cyclesList.innerHTML = '<li><a class="dropdown-item text-danger" href="#">Failed to load cycles</a></li>';
+        });
+    }
+
+    // Show all cycles (same as toggle button)
+    window.showAllCycles = function() {
+        if (!scopeCy) return;
+        shownCycleIndex = -1;
+
+        // If edges are deferred, add them first
+        if (edgesDeferred && deferredEdges) {
+            const loadingOverlay = document.getElementById('scope-loading-overlay');
+            const loadingText = document.getElementById('scope-loading-text');
+            loadingOverlay.style.display = 'flex';
+            loadingText.textContent = `Adding ${deferredEdges.length} edges...`;
+
+            setTimeout(() => {
+                scopeCy.batch(() => {
+                    scopeCy.add(deferredEdges);
+                });
+                deferredEdges = null;
+                edgesDeferred = false;
+                loadingOverlay.style.display = 'none';
+
+                // Now show cycles
+                doShowAllCycles();
+            }, 0);
+        } else {
+            doShowAllCycles();
+        }
+    };
+
+    function doShowAllCycles() {
+        // Clear previous cycle marking
+        scopeCy.elements().removeClass('cycle-highlighted single-cycle-highlighted');
+
+        // Mark all cycle edges
+        const cycleEdges = scopeCy.edges('[?inCycle]');
+        cycleEdges.addClass('cycle-highlighted');
+        cycleEdges.forEach(edge => {
+            edge.source().addClass('cycle-highlighted');
+            edge.target().addClass('cycle-highlighted');
+        });
+
+        // Update button state
+        scopeCyclesVisible = true;
+        const btn = document.getElementById('scope-toggle-cycles-btn');
+        btn.classList.add('active', 'btn-danger');
+        btn.classList.remove('btn-outline-secondary');
+    }
+
+    // Show a single cycle by index
+    window.showSingleCycle = function(cycleIndex) {
+        if (!scopeCy || !currentCycles[cycleIndex]) return;
+        shownCycleIndex = cycleIndex;
+
+        const cycle = currentCycles[cycleIndex];
+
+        // If edges are deferred, add ALL edges first (they'll be hidden, but cycle edges will be shown)
+        if (edgesDeferred && deferredEdges) {
+            console.log('Adding all', deferredEdges.length, 'deferred edges before showing cycle');
+            scopeCy.batch(() => {
+                scopeCy.add(deferredEdges);
+            });
+            // Hide all edges initially (cycle edges will be shown below)
+            scopeCy.edges().hide();
+            deferredEdges = null;
+            edgesDeferred = false;
+        }
+
+        // Clear all cycle marking
+        scopeCy.elements().removeClass('cycle-highlighted single-cycle-highlighted');
+
+        // Mark nodes in this cycle
+        cycle.forEach(nodeId => {
+            const node = scopeCy.getElementById(nodeId);
+            if (node.length) {
+                node.addClass('single-cycle-highlighted');
+            }
+        });
+
+        // Mark edges in this cycle
+        let foundEdges = 0;
+        let missingEdges = [];
+        for (let i = 0; i < cycle.length; i++) {
+            const source = cycle[i];
+            const target = cycle[(i + 1) % cycle.length];
+            const edgeId = `${source}->${target}`;
+            const edge = scopeCy.getElementById(edgeId);
+            if (edge.length) {
+                edge.addClass('single-cycle-highlighted');
+                edge.show();  // Make sure edge is visible
+                foundEdges++;
+            } else {
+                missingEdges.push(edgeId);
+            }
+        }
+        if (missingEdges.length > 0) {
+            console.warn('Cycle missing edges in graph:', JSON.stringify(missingEdges));
+            console.warn('Found ' + foundEdges + '/' + cycle.length + ' edges. Total edges in graph: ' + scopeCy.edges().length);
+        }
+
+        // Arrange cycle nodes in a circle (in cycle order) for better visualization
+        const markedNodes = scopeCy.nodes('.single-cycle-highlighted');
+        if (markedNodes.length > 0) {
+            // Get center of marked nodes
+            const bbox = markedNodes.boundingBox();
+            const centerX = (bbox.x1 + bbox.x2) / 2;
+            const centerY = (bbox.y1 + bbox.y2) / 2;
+            const radius = Math.max(100, cycle.length * 40);
+
+            // Arrange in a circle following cycle order
+            cycle.forEach((nodeId, i) => {
+                const node = scopeCy.getElementById(nodeId);
+                if (node.length) {
+                    const angle = (2 * Math.PI * i) / cycle.length - Math.PI / 2;
+                    node.position({
+                        x: centerX + radius * Math.cos(angle),
+                        y: centerY + radius * Math.sin(angle)
+                    });
+                }
+            });
+        }
+
+        // Fit view to marked elements
+        const marked = scopeCy.elements('.single-cycle-highlighted');
+        if (marked.length > 0) {
+            scopeCy.fit(marked, 50);
+        }
+
+        // Update button state
+        scopeCyclesVisible = true;
+        const btn = document.getElementById('scope-toggle-cycles-btn');
+        btn.classList.add('active', 'btn-warning');
+        btn.classList.remove('btn-outline-secondary', 'btn-danger');
     };
 })();
 </script>
