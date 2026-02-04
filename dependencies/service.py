@@ -667,11 +667,12 @@ class GitLabService:
 
             yield from items
 
-            # Check if there are more pages
-            total_pages = int(response.headers.get('x-total-pages', '1'))
-            if page >= total_pages:
+            # Check if there are more pages using x-next-page header
+            # Note: x-total-pages is omitted when total > 10,000, so we can't rely on it
+            next_page = response.headers.get('x-next-page', '')
+            if not next_page:
                 break
-            page += 1
+            page = int(next_page)
 
     def get_projects(
         self,
