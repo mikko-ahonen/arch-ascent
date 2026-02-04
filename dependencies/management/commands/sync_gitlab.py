@@ -5,6 +5,7 @@ Phase 1: Extract all pom.xml files from visible GitLab projects (cached locally)
 Phase 2: Parse cached pom.xml files to create projects, groups, and dependencies
 """
 import json
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -163,6 +164,7 @@ class Command(BaseCommand):
             skipped_cached = 0
             skipped_no_pom = 0
             errors = 0
+            modules_extracted = 0
 
             for i, project in enumerate(projects, 1):
                 project_path = project.path_with_namespace
@@ -171,6 +173,16 @@ class Command(BaseCommand):
                 if use_cache and service.is_file_cached(project_path, 'pom.xml'):
                     skipped_cached += 1
                     self.stdout.write(f'  [{i}/{len(projects)}] {project_path}: cached')
+                    # Still check for modules in cached pom.xml
+                    try:
+                        cached_content = service.get_cached_file(project_path, 'pom.xml')
+                        if cached_content:
+                            module_count = self._extract_modules_from_pom(
+                                service, project, cached_content, '', cache_dir, use_cache
+                            )
+                            modules_extracted += module_count
+                    except Exception as e:
+                        self.stderr.write(f'    Error processing modules: {e}')
                     continue
 
                 try:
@@ -178,6 +190,16 @@ class Command(BaseCommand):
                     if content:
                         extracted += 1
                         self.stdout.write(f'  [{i}/{len(projects)}] {project_path}: extracted')
+                        # Check for modules in the pom.xml
+                        try:
+                            module_count = self._extract_modules_from_pom(
+                                service, project, content, '', cache_dir, use_cache
+                            )
+                            modules_extracted += module_count
+                            if module_count > 0:
+                                self.stdout.write(f'    Found {module_count} modules')
+                        except Exception as e:
+                            self.stderr.write(f'    Error processing modules: {e}')
                     else:
                         skipped_no_pom += 1
                         self.stdout.write(f'  [{i}/{len(projects)}] {project_path}: no pom.xml')
@@ -187,6 +209,7 @@ class Command(BaseCommand):
 
         self.stdout.write(f'\nPhase 1 Summary:')
         self.stdout.write(f'  Extracted: {extracted}')
+        self.stdout.write(f'  Module pom.xml extracted: {modules_extracted}')
         self.stdout.write(f'  Already cached: {skipped_cached}')
         self.stdout.write(f'  No pom.xml: {skipped_no_pom}')
         self.stdout.write(f'  Errors: {errors}')
@@ -267,6 +290,94 @@ class Command(BaseCommand):
             for p in projects_data
         ]
 
+    def _extract_modules_from_pom(
+        self,
+        service: GitLabService,
+        project: GitLabProjectData,
+        pom_content: str,
+        parent_path: str,
+        cache_dir: Path,
+        use_cache: bool,
+        depth: int = 0,
+    ) -> int:
+        """Extract and fetch module pom.xml files recursively.
+
+        Args:
+            service: GitLab service instance
+            project: GitLab project containing the pom.xml
+            pom_content: Content of the parent pom.xml
+            parent_path: Path prefix for modules (e.g., '' for root, 'submodule' for nested)
+            cache_dir: Cache directory
+            use_cache: Whether to use cached files
+            depth: Current recursion depth (to prevent infinite loops)
+
+        Returns:
+            Number of module pom.xml files extracted
+        """
+        if depth > 10:  # Prevent infinite recursion
+            return 0
+
+        # Parse pom.xml to find modules
+        try:
+            root = ET.fromstring(pom_content)
+        except ET.ParseError:
+            return 0
+
+        # Handle Maven namespace
+        ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+
+        # Find modules element
+        modules_elem = root.find('m:modules', ns)
+        if modules_elem is None:
+            modules_elem = root.find('modules')
+
+        if modules_elem is None:
+            return 0
+
+        extracted_count = 0
+        modules = []
+
+        # Get module names
+        for module in modules_elem.findall('m:module', ns) or modules_elem.findall('module'):
+            if module.text:
+                modules.append(module.text.strip())
+
+        # Fetch pom.xml for each module
+        for module_name in modules:
+            # Build the path to the module's pom.xml
+            if parent_path:
+                module_path = f"{parent_path}/{module_name}/pom.xml"
+            else:
+                module_path = f"{module_name}/pom.xml"
+
+            # Check cache first
+            if use_cache and service.is_file_cached(project.path_with_namespace, module_path):
+                # Still need to check for nested modules in cached file
+                cached_content = service.get_cached_file(project.path_with_namespace, module_path)
+                if cached_content:
+                    extracted_count += 1
+                    # Recursively process nested modules
+                    nested_parent = f"{parent_path}/{module_name}" if parent_path else module_name
+                    extracted_count += self._extract_modules_from_pom(
+                        service, project, cached_content, nested_parent, cache_dir, use_cache, depth + 1
+                    )
+                continue
+
+            try:
+                content = service.fetch_and_cache_file(project, module_path, use_cache=use_cache)
+                if content:
+                    extracted_count += 1
+                    # Recursively process nested modules
+                    nested_parent = f"{parent_path}/{module_name}" if parent_path else module_name
+                    extracted_count += self._extract_modules_from_pom(
+                        service, project, content, nested_parent, cache_dir, use_cache, depth + 1
+                    )
+            except Exception:
+                # Module pom.xml not found or error - skip silently
+                pass
+
+        return extracted_count
+
     def phase_2_process(self, options, cache_dir: Path):
         """Phase 2: Process cached pom.xml files to create projects and dependencies."""
         internal_prefix = options.get('internal_group_prefix', '')
@@ -307,8 +418,20 @@ class Command(BaseCommand):
 
         if dry_run:
             self.stdout.write(self.style.WARNING('\nDry run - not making changes'))
+            multi_module_count = sum(1 for p in parsed_projects if p.get('modules'))
+            with_scm_count = sum(1 for p in parsed_projects if p.get('scm'))
+            self.stdout.write(f'  Multi-module projects: {multi_module_count}')
+            self.stdout.write(f'  Projects with SCM info: {with_scm_count}')
             for proj in parsed_projects[:10]:  # Show first 10
-                self.stdout.write(f"  Project: {proj['key']} ({len(proj['dependencies'])} deps)")
+                modules = proj.get('modules', [])
+                scm = proj.get('scm')
+                extras = []
+                if modules:
+                    extras.append(f'{len(modules)} modules')
+                if scm:
+                    extras.append('scm')
+                extra_str = f' [{", ".join(extras)}]' if extras else ''
+                self.stdout.write(f"  Project: {proj['key']} ({len(proj['dependencies'])} deps){extra_str}")
             if len(parsed_projects) > 10:
                 self.stdout.write(f"  ... and {len(parsed_projects) - 10} more")
             return
@@ -371,19 +494,43 @@ class Command(BaseCommand):
 
                 components_by_key[proj_data['key']] = component
 
-                # Try to link to GitProject based on pom.xml path
+                # Try to link to GitProject based on pom.xml path or SCM info
                 pom_path = proj_data.get('pom_path', '')
+                git_project = None
+
                 if pom_path:
                     # Extract git project path from pom path
                     # e.g., pom_cache/namespace/project/pom.xml -> namespace/project
+                    # e.g., pom_cache/namespace/project/module/pom.xml -> namespace/project
                     rel_path = Path(pom_path).relative_to(cache_dir)
-                    git_path = str(rel_path.parent).replace('\\', '/')
+                    path_parts = list(rel_path.parent.parts)
 
-                    git_project = git_projects_by_path.get(git_path)
-                    if git_project and not git_project.component:
-                        git_project.component = component
-                        git_project.save()
-                        linked_git_projects += 1
+                    # Try progressively shorter paths (for module pom.xml files)
+                    while path_parts and not git_project:
+                        candidate_path = '/'.join(path_parts)
+                        git_project = git_projects_by_path.get(candidate_path)
+                        if not git_project:
+                            path_parts.pop()
+
+                # Also try to match using SCM connection URL
+                if not git_project and proj_data.get('scm'):
+                    scm = proj_data['scm']
+                    scm_url = scm.get('connection') or scm.get('developer_connection') or scm.get('url')
+                    if scm_url:
+                        # Parse SCM URL to extract project path
+                        # Common formats:
+                        # - scm:git:git@gitlab.com:namespace/project.git
+                        # - scm:git:https://gitlab.com/namespace/project.git
+                        # - git@gitlab.com:namespace/project.git
+                        # - https://gitlab.com/namespace/project.git
+                        git_path = self._extract_git_path_from_scm(scm_url)
+                        if git_path:
+                            git_project = git_projects_by_path.get(git_path)
+
+                if git_project and not git_project.component:
+                    git_project.component = component
+                    git_project.save()
+                    linked_git_projects += 1
 
             # Second pass: create dependencies
             for proj_data in parsed_projects:
@@ -512,6 +659,24 @@ class Command(BaseCommand):
                         'optional': dep_optional,
                     })
 
+        # Extract modules (for multi-module projects)
+        modules = []
+        modules_elem = find(root, 'modules')
+        if modules_elem is not None:
+            for module in modules_elem.findall('m:module', ns) or modules_elem.findall('module'):
+                if module.text:
+                    modules.append(module.text.strip())
+
+        # Extract SCM information
+        scm_connection = ''
+        scm_developer_connection = ''
+        scm_url = ''
+        scm_elem = find(root, 'scm')
+        if scm_elem is not None:
+            scm_connection = findtext(scm_elem, 'connection')
+            scm_developer_connection = findtext(scm_elem, 'developerConnection')
+            scm_url = findtext(scm_elem, 'url')
+
         return {
             'key': project_key,
             'name': name,
@@ -520,8 +685,52 @@ class Command(BaseCommand):
             'version': version,
             'description': description,
             'dependencies': dependencies,
+            'modules': modules,
+            'scm': {
+                'connection': scm_connection,
+                'developer_connection': scm_developer_connection,
+                'url': scm_url,
+            } if scm_connection or scm_developer_connection or scm_url else None,
             'pom_path': str(pom_path),
         }
+
+    def _extract_git_path_from_scm(self, scm_url: str) -> str | None:
+        """Extract GitLab project path from SCM connection URL.
+
+        Args:
+            scm_url: SCM connection URL in various formats
+
+        Returns:
+            Project path (e.g., "namespace/project") or None if not parseable
+
+        Examples:
+            - scm:git:git@gitlab.com:namespace/project.git -> namespace/project
+            - scm:git:https://gitlab.com/namespace/project.git -> namespace/project
+            - git@gitlab.com:namespace/project.git -> namespace/project
+            - https://gitlab.com/namespace/project.git -> namespace/project
+            - scm:git:ssh://git@gitlab.com/namespace/project.git -> namespace/project
+        """
+        if not scm_url:
+            return None
+
+        # Remove common prefixes
+        url = scm_url
+        for prefix in ['scm:git:', 'scm:svn:', 'scm:']:
+            if url.startswith(prefix):
+                url = url[len(prefix):]
+                break
+
+        # Handle SSH format: git@host:path.git or ssh://git@host/path.git
+        ssh_match = re.match(r'(?:ssh://)?git@[^:/]+[:/](.+?)(?:\.git)?$', url)
+        if ssh_match:
+            return ssh_match.group(1)
+
+        # Handle HTTPS format: https://host/path.git
+        https_match = re.match(r'https?://[^/]+/(.+?)(?:\.git)?$', url)
+        if https_match:
+            return https_match.group(1)
+
+        return None
 
     def get_or_create_group(self, group_id: str) -> tuple[NodeGroup, bool]:
         """Get or create a NodeGroup from a Maven groupId.
