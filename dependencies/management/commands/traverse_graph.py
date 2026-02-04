@@ -19,7 +19,7 @@ Usage:
 """
 import json
 from django.core.management.base import BaseCommand
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from dependencies.components.graph.graph import traverse_graph
 
 
@@ -67,10 +67,24 @@ class Command(BaseCommand):
         max_depth = options['max_depth']
         output_format = options['output']
 
-        # Check if start node exists
-        if not Project.objects.filter(key=start_node).exists():
-            self.stderr.write(self.style.ERROR(f"Project '{start_node}' not found"))
+        # Try to find component by Maven coordinates, UUID, or name
+        component = None
+        if ':' in start_node:
+            parts = start_node.split(':', 1)
+            component = Component.objects.filter(group_id=parts[0], artifact_id=parts[1]).first()
+        if not component:
+            try:
+                component = Component.objects.get(id=start_node)
+            except (Component.DoesNotExist, ValueError):
+                pass
+        if not component:
+            component = Component.objects.filter(name=start_node).first()
+
+        if not component:
+            self.stderr.write(self.style.ERROR(f"Component '{start_node}' not found"))
             return
+
+        component_id = str(component.id)
 
         # Build adjacency list from database
         adjacency = self._build_adjacency()
@@ -78,7 +92,7 @@ class Command(BaseCommand):
         # Perform traversal
         result = traverse_graph(
             adjacency,
-            start_node,
+            component_id,
             direction=direction,
             algorithm=algorithm,
             max_depth=max_depth,
@@ -86,22 +100,24 @@ class Command(BaseCommand):
 
         # Format and output results
         if output_format == 'json':
-            self._output_json(result, start_node, direction, algorithm, max_depth)
+            self._output_json(result, component.name, direction, algorithm, max_depth)
         elif output_format == 'yaml':
-            self._output_yaml(result, start_node, direction, algorithm, max_depth)
+            self._output_yaml(result, component.name, direction, algorithm, max_depth)
         else:
-            self._output_text(result, start_node, direction, algorithm, max_depth)
+            self._output_text(result, component.name, direction, algorithm, max_depth)
 
     def _build_adjacency(self) -> dict[str, set[str]]:
         """Build adjacency list from database."""
         adjacency: dict[str, set[str]] = {}
 
         for dep in Dependency.objects.select_related('source', 'target').all():
-            adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            adjacency.setdefault(source_key, set()).add(target_key)
 
-        # Ensure all projects are in adjacency (even if no outgoing deps)
-        for project in Project.objects.all():
-            adjacency.setdefault(project.key, set())
+        # Ensure all components are in adjacency (even if no outgoing deps)
+        for component in Component.objects.all():
+            adjacency.setdefault(str(component.id), set())
 
         return adjacency
 

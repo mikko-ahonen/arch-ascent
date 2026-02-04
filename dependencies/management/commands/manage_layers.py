@@ -20,7 +20,7 @@ Usage:
 import re
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from dependencies.models import Project, Dependency, LayerDefinition, LayerAssignment
+from dependencies.models import Component, Dependency, LayerDefinition, LayerAssignment
 
 
 class Command(BaseCommand):
@@ -149,14 +149,25 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Layer '{name}' not found"))
 
     def _handle_assign(self, options):
-        """Assign a project to a layer."""
-        project_key = options['project']
+        """Assign a component to a layer."""
+        component_key = options['project']  # Keep arg name for CLI compatibility
         layer_name = options['layer']
 
-        try:
-            project = Project.objects.get(key=project_key)
-        except Project.DoesNotExist:
-            self.stdout.write(self.style.ERROR(f"Project '{project_key}' not found"))
+        # Try to find component by Maven coordinates or UUID
+        component = None
+        if ':' in component_key:
+            parts = component_key.split(':', 1)
+            component = Component.objects.filter(group_id=parts[0], artifact_id=parts[1]).first()
+        if not component:
+            try:
+                component = Component.objects.get(id=component_key)
+            except (Component.DoesNotExist, ValueError):
+                pass
+        if not component:
+            component = Component.objects.filter(name=component_key).first()
+
+        if not component:
+            self.stdout.write(self.style.ERROR(f"Component '{component_key}' not found"))
             return
 
         try:
@@ -166,76 +177,94 @@ class Command(BaseCommand):
             return
 
         assignment, created = LayerAssignment.objects.update_or_create(
-            project=project,
+            component=component,
             defaults={'layer': layer, 'auto_assigned': False}
         )
 
         if created:
-            self.stdout.write(self.style.SUCCESS(f"Assigned '{project_key}' to layer '{layer_name}'"))
+            self.stdout.write(self.style.SUCCESS(f"Assigned '{component.name}' to layer '{layer_name}'"))
         else:
-            self.stdout.write(self.style.SUCCESS(f"Updated '{project_key}' to layer '{layer_name}'"))
+            self.stdout.write(self.style.SUCCESS(f"Updated '{component.name}' to layer '{layer_name}'"))
 
     def _handle_unassign(self, options):
-        """Remove project from layer."""
-        project_key = options['project']
+        """Remove component from layer."""
+        component_key = options['project']
 
-        try:
-            assignment = LayerAssignment.objects.get(project__key=project_key)
+        # Try to find assignment by component Maven coordinates, UUID, or name
+        assignment = None
+        if ':' in component_key:
+            parts = component_key.split(':', 1)
+            assignment = LayerAssignment.objects.filter(
+                component__group_id=parts[0],
+                component__artifact_id=parts[1]
+            ).first()
+        if not assignment:
+            try:
+                assignment = LayerAssignment.objects.get(component__id=component_key)
+            except (LayerAssignment.DoesNotExist, ValueError):
+                pass
+        if not assignment:
+            assignment = LayerAssignment.objects.filter(component__name=component_key).first()
+
+        if assignment:
+            component_name = assignment.component.name
             assignment.delete()
-            self.stdout.write(self.style.SUCCESS(f"Removed layer assignment for '{project_key}'"))
-        except LayerAssignment.DoesNotExist:
-            self.stdout.write(self.style.WARNING(f"Project '{project_key}' has no layer assignment"))
+            self.stdout.write(self.style.SUCCESS(f"Removed layer assignment for '{component_name}'"))
+        else:
+            self.stdout.write(self.style.WARNING(f"Component '{component_key}' has no layer assignment"))
 
     @transaction.atomic
     def _handle_auto_assign(self, options):
-        """Auto-assign projects based on layer patterns."""
+        """Auto-assign components based on layer patterns."""
         dry_run = options.get('dry_run', False)
 
         layers = LayerDefinition.objects.exclude(pattern='').order_by('level')
-        projects = Project.objects.all()
+        components = Component.objects.all()
 
         if not layers.exists():
             self.stdout.write(self.style.WARNING("No layers with patterns defined"))
             return
 
         assignments = []
-        for project in projects:
+        for component in components:
             # Skip if already manually assigned
             existing = LayerAssignment.objects.filter(
-                project=project, auto_assigned=False
+                component=component, auto_assigned=False
             ).first()
             if existing:
                 continue
 
+            # Use Maven coordinate as key for pattern matching
+            component_key = component.key
             for layer in layers:
-                if layer.pattern and re.match(layer.pattern, project.key):
-                    assignments.append((project, layer))
+                if layer.pattern and re.match(layer.pattern, component_key):
+                    assignments.append((component, layer))
                     break
 
         if not assignments:
-            self.stdout.write(self.style.WARNING("No projects matched any layer patterns"))
+            self.stdout.write(self.style.WARNING("No components matched any layer patterns"))
             return
 
         if dry_run:
             self.stdout.write(self.style.SUCCESS("\nWould assign (dry run):"))
-            for project, layer in assignments:
-                self.stdout.write(f"  {project.key} -> {layer.name}")
+            for component, layer in assignments:
+                self.stdout.write(f"  {component.name} -> {layer.name}")
         else:
             count = 0
-            for project, layer in assignments:
+            for component, layer in assignments:
                 LayerAssignment.objects.update_or_create(
-                    project=project,
+                    component=component,
                     defaults={'layer': layer, 'auto_assigned': True}
                 )
                 count += 1
 
-            self.stdout.write(self.style.SUCCESS(f"Auto-assigned {count} projects"))
+            self.stdout.write(self.style.SUCCESS(f"Auto-assigned {count} components"))
 
     def _handle_show(self, options):
         """Show all layer assignments."""
         assignments = LayerAssignment.objects.select_related(
-            'project', 'layer'
-        ).order_by('layer__level', 'project__name')
+            'component', 'layer'
+        ).order_by('layer__level', 'component__name')
 
         if not assignments.exists():
             self.stdout.write(self.style.WARNING("No layer assignments. Use 'assign' or 'auto-assign'."))
@@ -251,4 +280,4 @@ class Command(BaseCommand):
                 self.stdout.write(f"\n  [{assignment.layer.level}] {assignment.layer.name}:")
 
             auto = " (auto)" if assignment.auto_assigned else ""
-            self.stdout.write(f"    - {assignment.project.key}{auto}")
+            self.stdout.write(f"    - {assignment.component.name}{auto}")

@@ -2,7 +2,7 @@ import logging
 import re
 from datetime import datetime
 from django.utils import timezone
-from .models import Project, Dependency, NodeGroup
+from .models import Component, Dependency, NodeGroup, SonarProject, CheckmarxProject, GitProject
 from .service import SonarQubeService, CheckmarxService
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,10 @@ def create_group_name(group_key: str) -> str:
 
 
 def sync_projects(service: SonarQubeService | None = None) -> int:
-    """Synchronize all projects from SonarQube to local database."""
+    """Synchronize all projects from SonarQube to local database.
+
+    Creates SonarProject records and links them to Components.
+    """
     if service is None:
         service = SonarQubeService()
 
@@ -75,7 +78,7 @@ def sync_projects(service: SonarQubeService | None = None) -> int:
                     pass
 
             # Extract group from project key
-            group_key, _ = extract_group_from_key(sonar_project.key)
+            group_key, basename = extract_group_from_key(sonar_project.key)
             group = None
 
             if group_key:
@@ -91,45 +94,79 @@ def sync_projects(service: SonarQubeService | None = None) -> int:
                 else:
                     group = groups_cache[group_key]
 
-            Project.objects.update_or_create(
-                key=sonar_project.key,
+            # Create or update SonarProject
+            sonar_proj, _ = SonarProject.objects.update_or_create(
+                sonar_key=sonar_project.key,
                 defaults={
                     'name': sonar_project.name,
                     'description': sonar_project.description,
                     'qualifier': sonar_project.qualifier,
                     'visibility': sonar_project.visibility,
                     'last_analysis': last_analysis,
-                    'synced_at': timezone.now(),
-                    'group': group,
                 }
             )
+
+            # Try to find existing component by Maven coordinates or create new one
+            component = sonar_proj.component
+            if not component:
+                # Try to match by Maven coordinates if key looks like groupId:artifactId
+                if ':' in sonar_project.key:
+                    parts = sonar_project.key.split(':', 1)
+                    component = Component.objects.filter(
+                        group_id=parts[0],
+                        artifact_id=parts[1]
+                    ).first()
+
+                if not component:
+                    # Create new component
+                    component = Component.objects.create(
+                        name=sonar_project.name,
+                        description=sonar_project.description,
+                        component_type='java',
+                        group=group,
+                    )
+                    # Set Maven coordinates if available
+                    if ':' in sonar_project.key:
+                        parts = sonar_project.key.split(':', 1)
+                        component.group_id = parts[0]
+                        component.artifact_id = parts[1]
+                        component.save()
+
+                sonar_proj.component = component
+                sonar_proj.save()
+
             synced += 1
-            logger.info(f"Synced project: {sonar_project.key}" + (f" -> group: {group_key}" if group_key else ""))
+            logger.info(f"Synced SonarQube project: {sonar_project.key}" + (f" -> group: {group_key}" if group_key else ""))
 
     return synced
 
 
 def sync_dependencies(service: SonarQubeService | None = None) -> int:
-    """Synchronize dependencies for all local projects."""
+    """Synchronize dependencies for all SonarQube projects."""
     if service is None:
         service = SonarQubeService()
 
     synced = 0
-    projects = {p.key: p for p in Project.objects.all()}
+    # Build lookup from sonar_key to component
+    sonar_to_component = {
+        sp.sonar_key: sp.component
+        for sp in SonarProject.objects.select_related('component').all()
+        if sp.component
+    }
 
     with service:
-        for project in projects.values():
-            for dep in service.get_dependencies(project.key):
-                target = projects.get(dep.target_key)
-                if target:
+        for sonar_key, source_component in sonar_to_component.items():
+            for dep in service.get_dependencies(sonar_key):
+                target_component = sonar_to_component.get(dep.target_key)
+                if target_component:
                     Dependency.objects.update_or_create(
-                        source=project,
-                        target=target,
+                        source=source_component,
+                        target=target_component,
                         scope=dep.scope,
                         defaults={'weight': dep.weight}
                     )
                     synced += 1
-                    logger.info(f"Synced dependency: {dep.source_key} -> {dep.target_key}")
+                    logger.info(f"Synced dependency: {source_component.name} -> {target_component.name}")
 
     return synced
 
@@ -140,53 +177,37 @@ def sync_dependencies(service: SonarQubeService | None = None) -> int:
 
 
 def sync_checkmarx_projects(service: CheckmarxService | None = None) -> int:
-    """Synchronize all projects from Checkmarx SCA to local database."""
+    """Synchronize all projects from Checkmarx SCA to local database.
+
+    Creates CheckmarxProject records. Components are created later when
+    processing SBOMs which contain the actual artifact information.
+    """
     if service is None:
         service = CheckmarxService()
 
     synced = 0
-    groups_cache: dict[str, NodeGroup] = {}
-
-    # Load existing groups
-    for group in NodeGroup.objects.all():
-        groups_cache[group.key] = group
 
     with service:
         for cx_project in service.get_projects():
-            # Use project name as key (prefix with cx: to distinguish from SonarQube)
-            project_key = f"cx:{cx_project.name}"
-
-            # Extract group from project name
-            group_key, _ = extract_group_from_key(cx_project.name)
-            group = None
-
-            if group_key:
-                # Prefix group key to distinguish from SonarQube groups
-                cx_group_key = f"cx:{group_key}"
-                if cx_group_key not in groups_cache:
-                    group, created = NodeGroup.objects.get_or_create(
-                        key=cx_group_key,
-                        defaults={'name': create_group_name(group_key)}
+            created_at = None
+            if cx_project.created_on:
+                try:
+                    created_at = datetime.fromisoformat(
+                        cx_project.created_on.replace('Z', '+00:00')
                     )
-                    groups_cache[cx_group_key] = group
-                    if created:
-                        logger.info(f"Created Checkmarx group: {cx_group_key}")
-                else:
-                    group = groups_cache[cx_group_key]
+                except ValueError:
+                    pass
 
-            Project.objects.update_or_create(
-                key=project_key,
+            CheckmarxProject.objects.update_or_create(
+                checkmarx_id=cx_project.id,
                 defaults={
                     'name': cx_project.name,
-                    'description': f'Checkmarx SCA project (ID: {cx_project.id})',
-                    'qualifier': 'CX',
-                    'visibility': 'public',
-                    'synced_at': timezone.now(),
-                    'group': group,
+                    'created_at': created_at,
+                    'tags': cx_project.tags or {},
                 }
             )
             synced += 1
-            logger.info(f"Synced Checkmarx project: {project_key}" + (f" -> group: {group_key}" if group_key else ""))
+            logger.info(f"Synced Checkmarx project: {cx_project.name}")
 
     return synced
 
@@ -269,15 +290,14 @@ def sync_checkmarx_dependencies(
         service = CheckmarxService()
 
     synced = 0
-    # Get all Checkmarx projects (those with cx: prefix)
-    projects = {p.key: p for p in Project.objects.filter(key__startswith='cx:')}
+    # Get all Checkmarx projects
+    cx_projects = {cp.checkmarx_id: cp for cp in CheckmarxProject.objects.all()}
+    components_cache: dict[str, Component] = {}
 
     with service:
         for cx_project in service.get_projects():
-            project_key = f"cx:{cx_project.name}"
-            project = projects.get(project_key)
-
-            if not project:
+            cx_proj = cx_projects.get(cx_project.id)
+            if not cx_proj:
                 continue
 
             # Get the latest scan
@@ -291,23 +311,38 @@ def sync_checkmarx_dependencies(
 
             # Skip if not cached and use_cached_only is True
             if use_cached_only and not service.is_sbom_cached(scan_id):
-                logger.debug(f"Skipping {project_key}: SBOM not cached")
+                logger.debug(f"Skipping {cx_proj.name}: SBOM not cached")
                 continue
 
-            for dep in service.get_dependencies_from_sbom(scan_id, cx_project.id):
-                # Create package as a project if it doesn't exist
-                package_key = f"pkg:{dep.package_name}"
-                target, _ = Project.objects.get_or_create(
-                    key=package_key,
-                    defaults={
-                        'name': dep.package_name,
-                        'description': f'External package (version: {dep.version})',
-                        'qualifier': 'PKG',
-                    }
+            # Ensure CheckmarxProject has a component
+            if not cx_proj.component:
+                cx_proj.component = Component.objects.create(
+                    name=cx_proj.name,
+                    component_type='java',
+                    internal=True,
                 )
+                cx_proj.save()
+
+            source_component = cx_proj.component
+
+            for dep in service.get_dependencies_from_sbom(scan_id, cx_project.id):
+                # Get or create component for the package
+                package_key = f"pkg:{dep.package_name}"
+                if package_key not in components_cache:
+                    target, created = Component.objects.get_or_create(
+                        name=dep.package_name,
+                        component_type='java',
+                        defaults={
+                            'description': f'External package (version: {dep.version})',
+                            'internal': False,
+                        }
+                    )
+                    components_cache[package_key] = target
+                else:
+                    target = components_cache[package_key]
 
                 Dependency.objects.update_or_create(
-                    source=project,
+                    source=source_component,
                     target=target,
                     defaults={
                         'scope': 'direct' if dep.is_direct else 'transitive',
@@ -315,7 +350,7 @@ def sync_checkmarx_dependencies(
                     }
                 )
                 synced += 1
-                logger.info(f"Synced Checkmarx dependency: {project_key} -> {package_key}")
+                logger.info(f"Synced Checkmarx dependency: {source_component.name} -> {target.name}")
 
     return synced
 
@@ -474,18 +509,18 @@ def import_from_cached_sboms(
     internal_prefix: str = None,
     on_progress: callable = None,
 ) -> dict:
-    """Import projects and dependencies from cached SBOM JSON files.
+    """Import components and dependencies from cached SBOM JSON files.
 
     This is a fully offline operation - no HTTP requests are made.
-    Projects and dependencies are extracted directly from CycloneDX JSON files.
+    Components and dependencies are extracted directly from CycloneDX JSON files.
 
     Args:
         cache_dir: Path to directory containing cached SBOM JSON files
         internal_prefix: Purl prefix for internal packages (e.g., "pkg:maven/fi.company")
-        on_progress: Optional callback(projects_count, dependencies_count)
+        on_progress: Optional callback(components_count, dependencies_count)
 
     Returns:
-        dict with 'projects' and 'dependencies' counts
+        dict with 'projects' (components) and 'dependencies' counts
     """
     import json
     from pathlib import Path
@@ -493,8 +528,8 @@ def import_from_cached_sboms(
     cache_path = Path(cache_dir)
     result = {'projects': 0, 'dependencies': 0}
 
-    # Build a lookup of bom-ref -> Project for dependency resolution
-    projects_cache: dict[str, Project] = {}
+    # Build a lookup of purl -> Component for dependency resolution
+    components_cache: dict[str, Component] = {}
     groups_cache: dict[str, NodeGroup] = {}
 
     # Load existing groups
@@ -504,7 +539,7 @@ def import_from_cached_sboms(
     # Track bom-ref -> version-less key mapping for dependency resolution
     bomref_to_key: dict[str, str] = {}
 
-    # First pass: create all projects from all SBOM files
+    # First pass: create all components from all SBOM files
     for sbom_file in cache_path.glob('*.json'):
         try:
             with open(sbom_file) as f:
@@ -513,57 +548,77 @@ def import_from_cached_sboms(
             logger.warning(f"Failed to read {sbom_file}: {e}")
             continue
 
-        # Create projects for all components
-        for component in sbom.get('components', []):
-            bom_ref = component.get('bom-ref', '')
+        # Create components for all SBOM components
+        for sbom_component in sbom.get('components', []):
+            bom_ref = sbom_component.get('bom-ref', '')
             if not bom_ref:
                 continue
 
             # Strip version from purl to get stable key
             # e.g., pkg:maven/org.example/lib@1.0.0 -> pkg:maven/org.example/lib
-            project_key, version = strip_purl_version(bom_ref)
+            purl_key, version = strip_purl_version(bom_ref)
 
-            # Map bom-ref (with version) to project key (without version)
-            bomref_to_key[bom_ref] = project_key
+            # Map bom-ref (with version) to purl key (without version)
+            bomref_to_key[bom_ref] = purl_key
 
             # Skip if we've already processed this package (different version)
-            if project_key in projects_cache:
+            if purl_key in components_cache:
                 continue
 
             # Use version from component if not in bom-ref
             if not version:
-                version = component.get('version', '')
+                version = sbom_component.get('version', '')
 
             # Determine if internal based on prefix (use version-less key)
             is_internal = False
             if internal_prefix:
                 internal_prefix_base, _ = strip_purl_version(internal_prefix)
-                if project_key.startswith(internal_prefix_base):
+                if purl_key.startswith(internal_prefix_base):
                     is_internal = True
 
             # Extract group, basename, and full name from purl (use version-less key)
-            group_key, basename, full_name = extract_group_from_purl(project_key, internal_prefix)
+            group_key, basename, full_name = extract_group_from_purl(purl_key, internal_prefix)
+
+            # Parse purl for Maven coordinates
+            parsed = parse_purl(purl_key)
+            group_id = parsed.get('namespace') or ''
+            artifact_id = parsed.get('artifact') or ''
 
             # Create/get group hierarchy for internal packages
             group = None
             if is_internal and group_key:
                 group = get_or_create_group_hierarchy(group_key, groups_cache)
 
-            project, created = Project.objects.update_or_create(
-                key=project_key,
-                defaults={
-                    'name': full_name,
-                    'basename': basename,
-                    'description': f'v{version}' if version else '',
-                    'qualifier': 'TRK' if is_internal else 'PKG',
-                    'internal': is_internal,
-                    'group': group,
-                    'synced_at': timezone.now(),
-                }
-            )
-            projects_cache[project_key] = project
-            if created:
+            # Try to find existing component by Maven coordinates
+            component = None
+            if group_id and artifact_id:
+                component = Component.objects.filter(
+                    group_id=group_id,
+                    artifact_id=artifact_id
+                ).first()
+
+            if component:
+                # Update existing component
+                component.name = full_name
+                component.version = version or component.version
+                component.internal = is_internal
+                component.group = group or component.group
+                component.save()
+            else:
+                # Create new component
+                component = Component.objects.create(
+                    name=full_name,
+                    description=f'v{version}' if version else '',
+                    component_type='java',
+                    group_id=group_id,
+                    artifact_id=artifact_id,
+                    version=version,
+                    internal=is_internal,
+                    group=group,
+                )
                 result['projects'] += 1
+
+            components_cache[purl_key] = component
 
     # Second pass: create dependencies from the dependencies array
     for sbom_file in cache_path.glob('*.json'):
@@ -581,13 +636,7 @@ def import_from_cached_sboms(
             # Map bom-ref (with version) to version-less key
             source_key = bomref_to_key.get(source_ref) or strip_purl_version(source_ref)[0]
 
-            source = projects_cache.get(source_key)
-            if not source:
-                # Source might not be in cache if it's not in components
-                source = Project.objects.filter(key=source_key).first()
-                if source:
-                    projects_cache[source_key] = source
-
+            source = components_cache.get(source_key)
             if not source:
                 continue
 
@@ -595,12 +644,7 @@ def import_from_cached_sboms(
                 # Map bom-ref (with version) to version-less key
                 target_key = bomref_to_key.get(target_ref) or strip_purl_version(target_ref)[0]
 
-                target = projects_cache.get(target_key)
-                if not target:
-                    target = Project.objects.filter(key=target_key).first()
-                    if target:
-                        projects_cache[target_key] = target
-
+                target = components_cache.get(target_key)
                 if not target:
                     continue
 
@@ -617,5 +661,5 @@ def import_from_cached_sboms(
         if on_progress:
             on_progress(result['projects'], result['dependencies'])
 
-    logger.info(f"Offline import complete: {result['projects']} projects, {result['dependencies']} dependencies")
+    logger.info(f"Offline import complete: {result['projects']} components, {result['dependencies']} dependencies")
     return result

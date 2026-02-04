@@ -23,7 +23,7 @@ Usage:
 import json
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from dependencies.models import Project, Dependency, NodeMetrics, AnalysisRun
+from dependencies.models import Component, Dependency, NodeMetrics, AnalysisRun
 from dependencies.components.graph.graph import calculate_all_metrics
 
 
@@ -115,10 +115,12 @@ class Command(BaseCommand):
         adjacency: dict[str, set[str]] = {}
 
         for dep in Dependency.objects.select_related('source', 'target').all():
-            adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            adjacency.setdefault(source_key, set()).add(target_key)
 
-        for project in Project.objects.all():
-            adjacency.setdefault(project.key, set())
+        for component in Component.objects.all():
+            adjacency.setdefault(str(component.id), set())
 
         return adjacency
 
@@ -142,16 +144,16 @@ class Command(BaseCommand):
             status='completed'
         )
 
-        projects = {p.key: p for p in Project.objects.all()}
+        components = {str(c.id): c for c in Component.objects.all()}
         count = 0
 
         for node_key, node_metrics in metrics.items():
-            project = projects.get(node_key)
-            if not project:
+            component = components.get(node_key)
+            if not component:
                 continue
 
             NodeMetrics.objects.update_or_create(
-                project=project,
+                component=component,
                 defaults={
                     'analysis_run': analysis_run,
                     'fan_in': node_metrics.get('fan_in', 0),
@@ -168,7 +170,7 @@ class Command(BaseCommand):
             )
             count += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Saved metrics for {count} projects"))
+        self.stdout.write(self.style.SUCCESS(f"Saved metrics for {count} components"))
 
     def _output_text(self, sorted_metrics, sort_by, project_key):
         """Output results as text."""

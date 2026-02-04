@@ -18,7 +18,7 @@ import json
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from dependencies.models import (
-    Project, Dependency, AnalysisRun, LayerDefinition,
+    Component, Dependency, AnalysisRun, LayerDefinition,
     LayerAssignment, LayerViolation
 )
 from dependencies.components.graph.graph import (
@@ -92,18 +92,20 @@ class Command(BaseCommand):
         adjacency: dict[str, set[str]] = {}
 
         for dep in Dependency.objects.select_related('source', 'target').all():
-            adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            adjacency.setdefault(source_key, set()).add(target_key)
 
-        for project in Project.objects.all():
-            adjacency.setdefault(project.key, set())
+        for component in Component.objects.all():
+            adjacency.setdefault(str(component.id), set())
 
         return adjacency
 
     def _get_layer_assignments(self) -> dict[str, int]:
         """Get layer assignments from database."""
         assignments = {}
-        for la in LayerAssignment.objects.select_related('project', 'layer').all():
-            assignments[la.project.key] = la.layer.level
+        for la in LayerAssignment.objects.select_related('component', 'layer').all():
+            assignments[str(la.component.id)] = la.layer.level
         return assignments
 
     @transaction.atomic
@@ -111,26 +113,26 @@ class Command(BaseCommand):
         """Save violations to database."""
         # Create analysis run
         analysis_run = AnalysisRun.objects.create(
-            total_projects=Project.objects.count(),
+            total_projects=Component.objects.count(),
             status='completed'
         )
 
-        # Get project and layer mappings
-        projects = {p.key: p for p in Project.objects.all()}
+        # Get component and layer mappings
+        components = {str(c.id): c for c in Component.objects.all()}
         layers = {l.level: l for l in LayerDefinition.objects.all()}
 
         count = 0
         for v in violations:
-            source_project = projects.get(v['source'])
-            target_project = projects.get(v['target'])
+            source_component = components.get(v['source'])
+            target_component = components.get(v['target'])
             source_layer = layers.get(v['source_layer'])
             target_layer = layers.get(v['target_layer'])
 
-            if source_project and target_project and source_layer and target_layer:
+            if source_component and target_component and source_layer and target_layer:
                 LayerViolation.objects.create(
                     analysis_run=analysis_run,
-                    source_project=source_project,
-                    target_project=target_project,
+                    source_component=source_component,
+                    target_component=target_component,
                     source_layer=source_layer,
                     target_layer=target_layer,
                     severity=v['severity'],

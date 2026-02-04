@@ -6,7 +6,7 @@ Uses django-taggit for tag management.
 """
 from typing import Optional
 from taggit.models import Tag
-from dependencies.models import Project
+from dependencies.models import Component
 
 
 def resolve_tag_expression(
@@ -52,13 +52,13 @@ def resolve_tag_expression(
 def _get_projects_with_tag(tag_name: str) -> set[str]:
     """Get all projects with a specific tag using taggit."""
     return set(
-        Project.objects.filter(tags__name=tag_name).values_list('key', flat=True)
+        Component.objects.filter(tags__name=tag_name).values_list('key', flat=True)
     )
 
 
 def _get_all_project_keys() -> set[str]:
     """Get all project keys in the system."""
-    return set(Project.objects.values_list('key', flat=True))
+    return set(Component.objects.values_list('key', flat=True))
 
 
 def _resolve_and(operands: list, vision_id: Optional[int]) -> set[str]:
@@ -98,8 +98,8 @@ def get_tags_for_project(project_key: str) -> list[dict]:
         List of tag info dicts with keys: name, slug
     """
     try:
-        project = Project.objects.get(key=project_key)
-    except Project.DoesNotExist:
+        project = Component.objects.get(key=project_key)
+    except Component.DoesNotExist:
         return []
 
     return [
@@ -123,8 +123,8 @@ def assign_tag_to_project(tag_name: str, project_key: str) -> bool:
         True if tag was added, False if project not found
     """
     try:
-        project = Project.objects.get(key=project_key)
-    except Project.DoesNotExist:
+        project = Component.objects.get(key=project_key)
+    except Component.DoesNotExist:
         return False
 
     project.tags.add(tag_name)
@@ -143,8 +143,8 @@ def remove_tag_from_project(tag_name: str, project_key: str) -> bool:
         True if tag was removed, False if project not found or tag didn't exist
     """
     try:
-        project = Project.objects.get(key=project_key)
-    except Project.DoesNotExist:
+        project = Component.objects.get(key=project_key)
+    except Component.DoesNotExist:
         return False
 
     if tag_name in [t.name for t in project.tags.all()]:
@@ -192,14 +192,14 @@ def get_projects_by_tags(tag_names: list[str], match_all: bool = False) -> set[s
 
     if match_all:
         # AND logic - must have all tags
-        queryset = Project.objects.all()
+        queryset = Component.objects.all()
         for tag_name in tag_names:
             queryset = queryset.filter(tags__name=tag_name)
         return set(queryset.values_list('key', flat=True))
     else:
         # OR logic - must have any tag
         return set(
-            Project.objects.filter(tags__name__in=tag_names)
+            Component.objects.filter(tags__name__in=tag_names)
             .distinct()
             .values_list('key', flat=True)
         )

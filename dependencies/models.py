@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from taggit.managers import TaggableManager
 
@@ -50,8 +51,26 @@ class NodeGroup(models.Model):
         return descendants
 
 
-class Project(models.Model):
-    """SonarQube project synchronized locally."""
+# =============================================================================
+# Component - the central entity in the dependency graph
+# =============================================================================
+
+
+class Component(models.Model):
+    """Abstract component in the dependency graph.
+
+    This is the central entity that represents something that can have dependencies.
+    It can be a Java artifact, npm package, service, or any other type of component.
+    Source-specific information (GitLab, SonarQube, Checkmarx) is linked separately.
+    """
+    COMPONENT_TYPES = [
+        ('java', 'Java/Maven'),
+        ('npm', 'NPM Package'),
+        ('pypi', 'Python Package'),
+        ('nuget', 'NuGet Package'),
+        ('service', 'Service'),
+        ('other', 'Other'),
+    ]
     STATUS_CHOICES = [
         ('active', 'Active'),
         ('stale', 'Stale'),
@@ -60,33 +79,121 @@ class Project(models.Model):
         ('orphan', 'Orphan'),
     ]
 
-    key = models.CharField(max_length=255, unique=True, db_index=True)
-    name = models.CharField(max_length=255)  # Full name including group (e.g., fi.company.foo.Bar)
-    basename = models.CharField(max_length=255, blank=True, default='')  # Short name (e.g., Bar)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255)  # Display name
     description = models.TextField(blank=True, default='')
-    qualifier = models.CharField(max_length=10, default='TRK')
-    visibility = models.CharField(max_length=20, default='public')
-    last_analysis = models.DateTimeField(null=True, blank=True)
-    synced_at = models.DateTimeField(auto_now=True)
-    position_x = models.FloatField(null=True, blank=True)
-    position_y = models.FloatField(null=True, blank=True)
+    component_type = models.CharField(max_length=20, choices=COMPONENT_TYPES, default='java')
+
+    # Maven coordinates (optional, for Java components)
+    group_id = models.CharField(max_length=255, blank=True, default='')
+    artifact_id = models.CharField(max_length=255, blank=True, default='')
+    version = models.CharField(max_length=100, blank=True, default='')
+
+    # Grouping
     group = models.ForeignKey(
         NodeGroup,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='projects'
+        related_name='components'
+    )
+
+    # Classification
+    internal = models.BooleanField(
+        default=True,
+        help_text="True for internal components, False for external packages"
     )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
         default='not_analyzed',
     )
-    internal = models.BooleanField(
-        default=True,
-        help_text="True for internal projects, False for external packages"
-    )
+
+    # Visualization
+    position_x = models.FloatField(null=True, blank=True)
+    position_y = models.FloatField(null=True, blank=True)
+
+    # Metadata
+    synced_at = models.DateTimeField(auto_now=True)
     tags = TaggableManager(blank=True)
+
+    class Meta:
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['group_id', 'artifact_id']),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def key(self):
+        """Return a unique key for the component."""
+        if self.group_id and self.artifact_id:
+            return f"{self.group_id}:{self.artifact_id}"
+        return str(self.id)
+
+    @property
+    def maven_coordinate(self):
+        """Return Maven coordinate if available."""
+        if self.group_id and self.artifact_id:
+            if self.version:
+                return f"{self.group_id}:{self.artifact_id}:{self.version}"
+            return f"{self.group_id}:{self.artifact_id}"
+        return None
+
+
+# =============================================================================
+# Source-specific project models
+# =============================================================================
+
+
+class GitProject(models.Model):
+    """GitLab project information."""
+    gitlab_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=255)
+    path = models.CharField(max_length=255)
+    path_with_namespace = models.CharField(max_length=512, unique=True)
+    namespace = models.JSONField(default=dict, blank=True)
+    description = models.TextField(blank=True, default='')
+    web_url = models.URLField(max_length=512, blank=True, default='')
+    default_branch = models.CharField(max_length=255, default='main')
+    synced_at = models.DateTimeField(auto_now=True)
+
+    # Link to component (nullable - may not be linked yet)
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='git_projects'
+    )
+
+    class Meta:
+        ordering = ['path_with_namespace']
+
+    def __str__(self):
+        return self.path_with_namespace
+
+
+class SonarProject(models.Model):
+    """SonarQube project information."""
+    sonar_key = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    qualifier = models.CharField(max_length=10, default='TRK')
+    visibility = models.CharField(max_length=20, default='public')
+    last_analysis = models.DateTimeField(null=True, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    # Link to component (nullable - may not be linked yet)
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sonar_projects'
+    )
 
     class Meta:
         ordering = ['name']
@@ -95,15 +202,44 @@ class Project(models.Model):
         return self.name
 
 
+class CheckmarxProject(models.Model):
+    """Checkmarx One project information."""
+    checkmarx_id = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(null=True, blank=True)
+    tags = models.JSONField(default=dict, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    # Link to component (nullable - may not be linked yet)
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='checkmarx_projects'
+    )
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+# =============================================================================
+# Dependencies between components
+# =============================================================================
+
+
 class Dependency(models.Model):
-    """Dependency relationship between projects."""
+    """Dependency relationship between components."""
     source = models.ForeignKey(
-        Project,
+        Component,
         on_delete=models.CASCADE,
         related_name='dependencies'
     )
     target = models.ForeignKey(
-        Project,
+        Component,
         on_delete=models.CASCADE,
         related_name='dependents'
     )
@@ -115,7 +251,9 @@ class Dependency(models.Model):
         ordering = ['source__name', 'target__name']
 
     def __str__(self):
-        return f"{self.source.key} -> {self.target.key}"
+        return f"{self.source.name} -> {self.target.name}"
+
+
 
 
 class AnalysisRun(models.Model):
@@ -241,9 +379,9 @@ class LayerDefinition(models.Model):
 
 
 class LayerAssignment(models.Model):
-    """Assigns a project to an architectural layer."""
-    project = models.OneToOneField(
-        Project,
+    """Assigns a component to an architectural layer."""
+    component = models.OneToOneField(
+        Component,
         on_delete=models.CASCADE,
         related_name='layer_assignment'
     )
@@ -259,10 +397,10 @@ class LayerAssignment(models.Model):
     assigned_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['layer__level', 'project__name']
+        ordering = ['layer__level', 'component__name']
 
     def __str__(self):
-        return f"{self.project.key} -> {self.layer.name}"
+        return f"{self.component.name} -> {self.layer.name}"
 
 
 class LayerViolation(models.Model):
@@ -278,13 +416,13 @@ class LayerViolation(models.Model):
         on_delete=models.CASCADE,
         related_name='layer_violations'
     )
-    source_project = models.ForeignKey(
-        Project,
+    source_component = models.ForeignKey(
+        Component,
         on_delete=models.CASCADE,
         related_name='outgoing_violations'
     )
-    target_project = models.ForeignKey(
-        Project,
+    target_component = models.ForeignKey(
+        Component,
         on_delete=models.CASCADE,
         related_name='incoming_violations'
     )
@@ -305,7 +443,7 @@ class LayerViolation(models.Model):
         ordering = ['-detected_at']
 
     def __str__(self):
-        return f"{self.source_project.key} -> {self.target_project.key} ({self.severity})"
+        return f"{self.source_component.name} -> {self.target_component.name} ({self.severity})"
 
     @property
     def severity_badge_class(self):
@@ -317,9 +455,9 @@ class LayerViolation(models.Model):
 
 
 class NodeMetrics(models.Model):
-    """Cached node-level metrics for a project."""
-    project = models.OneToOneField(
-        Project,
+    """Cached node-level metrics for a component."""
+    component = models.OneToOneField(
+        Component,
         on_delete=models.CASCADE,
         related_name='metrics'
     )
@@ -367,7 +505,7 @@ class NodeMetrics(models.Model):
         ordering = ['-instability', '-coupling_score']
 
     def __str__(self):
-        return f"Metrics for {self.project.key}"
+        return f"Metrics for {self.component.name}"
 
 
 class Vision(models.Model):

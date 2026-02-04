@@ -1,15 +1,15 @@
 import random
 from django.core.management.base import BaseCommand
-from dependencies.models import Project, Dependency, NodeGroup
+from dependencies.models import Component, Dependency, NodeGroup
 
 
 class Command(BaseCommand):
-    help = 'Create sample projects and dependencies for graph testing'
+    help = 'Create sample components and dependencies for graph testing'
 
     def handle(self, *args, **options):
         # Clear existing data
         Dependency.objects.all().delete()
-        Project.objects.all().delete()
+        Component.objects.all().delete()
         NodeGroup.objects.all().delete()
 
         # Define service domains
@@ -41,7 +41,7 @@ class Command(BaseCommand):
             )
             groups[domain] = group
 
-        # Generate 2000 projects with domain:service naming convention
+        # Generate 2000 components with domain:service naming convention
         for domain, services in domains.items():
             for service in services:
                 for svc_type in random.sample(service_types, k=random.randint(1, 2)):
@@ -49,13 +49,15 @@ class Command(BaseCommand):
                     key = f"{domain}:{service}-{svc_type}"
                     if key not in projects and len(projects) < 2000:
                         name = f"{service.replace('-', ' ').title()} {svc_type.title()}"
-                        project = Project.objects.create(
-                            key=key,
+                        component = Component.objects.create(
                             name=name,
                             description=f"{name} for {domain} domain",
+                            component_type='service',
+                            group_id=domain,
+                            artifact_id=f"{service}-{svc_type}",
                             group=groups[domain],
                         )
-                        projects[key] = project
+                        projects[key] = component
                         project_list.append((key, domain))
 
         # Fill remaining slots if needed
@@ -65,16 +67,18 @@ class Command(BaseCommand):
             num = len(projects)
             key = f"misc:{svc}-{num}"
             name = f"{svc.title()} Service {num}"
-            project = Project.objects.create(
-                key=key,
+            component = Component.objects.create(
                 name=name,
                 description=f"Additional service {num}",
+                component_type='service',
+                group_id='misc',
+                artifact_id=f"{svc}-{num}",
                 group=groups['misc'],
             )
-            projects[key] = project
+            projects[key] = component
             project_list.append((key, 'misc'))
 
-        self.stdout.write(f'Created {len(groups)} groups and {len(projects)} projects')
+        self.stdout.write(f'Created {len(groups)} groups and {len(projects)} components')
 
         # Core services that many depend on
         core_services = [k for k, d in project_list if d == 'core' or 'lib' in k or 'connector' in k]

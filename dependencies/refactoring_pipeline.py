@@ -20,7 +20,7 @@ from typing import Iterator
 from django.db import transaction
 from django.utils import timezone
 
-from dependencies.models import Project, Dependency, NodeGroup, RefactoringProposal, AnalysisRun
+from dependencies.models import Component, Dependency, NodeGroup, RefactoringProposal, AnalysisRun
 from dependencies.llm_service import RefactoringAnalyzer, AnalysisContext
 from dependencies.components.graph.graph import (
     find_sccs_tarjan,
@@ -51,22 +51,28 @@ class RefactoringPipeline:
         """Build adjacency list from database."""
         adjacency: dict[str, set[str]] = {}
 
-        # Include all projects
-        for project in Project.objects.all():
-            adjacency.setdefault(project.key, set())
+        # Include all components
+        for component in Component.objects.all():
+            adjacency.setdefault(str(component.id), set())
 
         # Add edges
         for dep in Dependency.objects.select_related('source', 'target').all():
-            adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            adjacency.setdefault(source_key, set()).add(target_key)
 
         return adjacency
 
-    def get_project_groups(self) -> dict[str, str]:
-        """Get mapping of project keys to their group names."""
+    def get_component_groups(self) -> dict[str, str]:
+        """Get mapping of component IDs to their group names."""
         groups = {}
-        for project in Project.objects.select_related('group').filter(group__isnull=False):
-            groups[project.key] = project.group.name
+        for component in Component.objects.select_related('group').filter(group__isnull=False):
+            groups[str(component.id)] = component.group.name
         return groups
+
+    # Alias for backwards compatibility
+    def get_project_groups(self) -> dict[str, str]:
+        return self.get_component_groups()
 
     def get_shared_concepts(self, services: list[str]) -> list[str]:
         """Extract shared concepts from service names."""
@@ -424,7 +430,7 @@ class RefactoringPipeline:
         """
         # Create analysis run record
         self.run = AnalysisRun.objects.create(
-            total_projects=Project.objects.count(),
+            total_projects=Component.objects.count(),
             status='running',
         )
         self._proposal_counter = RefactoringProposal.objects.count()

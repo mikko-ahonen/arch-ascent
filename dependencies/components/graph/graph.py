@@ -15,7 +15,7 @@ MAX_CENTRALITY_TIME = 5.0
 from django.http import HttpRequest, JsonResponse, HttpResponse
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
-from dependencies.models import Project, Dependency, NodeGroup
+from dependencies.models import Component, Dependency, NodeGroup
 
 
 # =============================================================================
@@ -1238,19 +1238,19 @@ class DependencyGraph(Component):
                 has_positions = True
             nodes.append(node_data)
 
-        # Add project nodes
-        for project in Project.objects.select_related('group').all():
+        # Add component nodes
+        for component in Component.objects.select_related('group').all():
             node_data = {
                 "data": {
-                    "id": project.key,
-                    "label": project.name,
-                    "description": project.description,
+                    "id": str(component.id),
+                    "label": component.name,
+                    "description": component.description,
                 }
             }
-            if project.group:
-                node_data["data"]["parent"] = project.group.key
-            if project.position_x is not None and project.position_y is not None:
-                node_data["position"] = {"x": project.position_x, "y": project.position_y}
+            if component.group:
+                node_data["data"]["parent"] = component.group.key
+            if component.position_x is not None and component.position_y is not None:
+                node_data["position"] = {"x": component.position_x, "y": component.position_y}
                 has_positions = True
             nodes.append(node_data)
 
@@ -1259,7 +1259,9 @@ class DependencyGraph(Component):
         # Build adjacency list
         adjacency: dict[str, set[str]] = {}
         for dep in deps:
-            adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            adjacency.setdefault(source_key, set()).add(target_key)
 
         # Check which edges are transitive
         transitive_edges = DependencyGraph._find_transitive_edges(adjacency)
@@ -1268,12 +1270,14 @@ class DependencyGraph(Component):
         cycle_edges = get_cycle_edges(adjacency)
 
         for dep in deps:
-            edge_key = (dep.source.key, dep.target.key)
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            edge_key = (source_key, target_key)
             edges.append({
                 "data": {
-                    "id": f"{dep.source.key}->{dep.target.key}",
-                    "source": dep.source.key,
-                    "target": dep.target.key,
+                    "id": f"{source_key}->{target_key}",
+                    "source": source_key,
+                    "target": target_key,
                     "scope": dep.scope,
                     "transitive": edge_key in transitive_edges,
                     "inCycle": edge_key in cycle_edges,
@@ -1384,7 +1388,7 @@ class DependencyGraph(Component):
             # Delete groups that no longer exist
             NodeGroup.objects.exclude(key__in=group_keys).delete()
 
-            # Update project positions and groups
+            # Update component positions and groups
             for node_data in nodes:
                 node_id = node_data['id']
                 parent_key = node_data.get('parent')
@@ -1392,7 +1396,7 @@ class DependencyGraph(Component):
                 if parent_key:
                     group = NodeGroup.objects.filter(key=parent_key).first()
 
-                Project.objects.filter(key=node_id).update(
+                Component.objects.filter(id=node_id).update(
                     position_x=node_data.get('x'),
                     position_y=node_data.get('y'),
                     group=group,
@@ -1513,7 +1517,7 @@ class DependencyGraph(Component):
                     node_x = grid_x + (inner_col - inner_cols / 2) * 80
                     node_y = grid_y + (inner_row - len(cluster_nodes) / inner_cols / 2) * 60
 
-                    Project.objects.filter(key=node['id']).update(
+                    Component.objects.filter(id=node['id']).update(
                         group=group,
                         position_x=node_x,
                         position_y=node_y,
@@ -1552,55 +1556,57 @@ class DependencyGraph(Component):
             if not filter_terms:
                 return JsonResponse(DependencyGraph.get_graph_data())
 
-            # Find matching projects (by key or name)
+            # Find matching components (by ID or name)
             # Supports wildcards: "foo:*" matches "foo:bar", "*:foo:*" matches "x:foo:y"
-            matching_projects = set()
-            all_projects = {p.key: p for p in Project.objects.select_related('group').all()}
+            matching_components = set()
+            all_components = {str(c.id): c for c in Component.objects.select_related('group').all()}
 
-            for project_key, project in all_projects.items():
+            for component_id, component in all_components.items():
                 for term in filter_terms:
-                    if matches_filter(project_key, term) or matches_filter(project.name, term):
-                        matching_projects.add(project_key)
+                    if matches_filter(component.name, term) or matches_filter(component.key, term):
+                        matching_components.add(component_id)
                         break
 
-            if not matching_projects:
+            if not matching_components:
                 return JsonResponse({"nodes": [], "edges": [], "has_positions": False})
 
-            # Find all connected projects (dependencies and dependents)
-            connected_projects = set(matching_projects)
+            # Find all connected components (dependencies and dependents)
+            connected_components = set(matching_components)
             deps = list(Dependency.objects.select_related('source', 'target').all())
 
             for dep in deps:
-                if dep.source.key in matching_projects:
-                    connected_projects.add(dep.target.key)
-                if dep.target.key in matching_projects:
-                    connected_projects.add(dep.source.key)
+                source_id = str(dep.source.id)
+                target_id = str(dep.target.id)
+                if source_id in matching_components:
+                    connected_components.add(target_id)
+                if target_id in matching_components:
+                    connected_components.add(source_id)
 
             # Build filtered graph data
             nodes = []
             groups_needed = set()
 
-            for project_key in connected_projects:
-                project = all_projects.get(project_key)
-                if not project:
+            for component_id in connected_components:
+                component = all_components.get(component_id)
+                if not component:
                     continue
 
                 # Mark if this node directly matches the filter (vs just connected)
-                is_matched = project_key in matching_projects
+                is_matched = component_id in matching_components
 
                 node_data = {
                     "data": {
-                        "id": project.key,
-                        "label": project.name,
-                        "description": project.description,
+                        "id": component_id,
+                        "label": component.name,
+                        "description": component.description,
                         "matched": is_matched,
                     }
                 }
-                if project.group:
-                    node_data["data"]["parent"] = project.group.key
-                    groups_needed.add(project.group.key)
-                if project.position_x is not None and project.position_y is not None:
-                    node_data["position"] = {"x": project.position_x, "y": project.position_y}
+                if component.group:
+                    node_data["data"]["parent"] = component.group.key
+                    groups_needed.add(component.group.key)
+                if component.position_x is not None and component.position_y is not None:
+                    node_data["position"] = {"x": component.position_x, "y": component.position_y}
                 nodes.append(node_data)
 
             # Add group nodes
@@ -1620,20 +1626,24 @@ class DependencyGraph(Component):
             edges = []
             adjacency: dict[str, set[str]] = {}
             for dep in deps:
-                if dep.source.key in connected_projects and dep.target.key in connected_projects:
-                    adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
+                source_id = str(dep.source.id)
+                target_id = str(dep.target.id)
+                if source_id in connected_components and target_id in connected_components:
+                    adjacency.setdefault(source_id, set()).add(target_id)
 
             transitive_edges = DependencyGraph._find_transitive_edges(adjacency)
             cycle_edges = get_cycle_edges(adjacency)
 
             for dep in deps:
-                if dep.source.key in connected_projects and dep.target.key in connected_projects:
-                    edge_key = (dep.source.key, dep.target.key)
+                source_id = str(dep.source.id)
+                target_id = str(dep.target.id)
+                if source_id in connected_components and target_id in connected_components:
+                    edge_key = (source_id, target_id)
                     edges.append({
                         "data": {
-                            "id": f"{dep.source.key}->{dep.target.key}",
-                            "source": dep.source.key,
-                            "target": dep.target.key,
+                            "id": f"{source_id}->{target_id}",
+                            "source": source_id,
+                            "target": target_id,
                             "scope": dep.scope,
                             "transitive": edge_key in transitive_edges,
                             "inCycle": edge_key in cycle_edges,

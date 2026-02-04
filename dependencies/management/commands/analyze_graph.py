@@ -28,7 +28,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 from dependencies.models import (
-    Project, Dependency, AnalysisRun, LayerDefinition,
+    Component, Dependency, AnalysisRun, LayerDefinition,
     LayerAssignment, LayerViolation, NodeMetrics
 )
 from dependencies.components.graph.graph import (
@@ -114,9 +114,11 @@ class Command(BaseCommand):
         """Build adjacency list from database."""
         adjacency: dict[str, set[str]] = {}
         for dep in Dependency.objects.select_related('source', 'target').all():
-            adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
-        for project in Project.objects.all():
-            adjacency.setdefault(project.key, set())
+            source_key = str(dep.source.id)
+            target_key = str(dep.target.id)
+            adjacency.setdefault(source_key, set()).add(target_key)
+        for component in Component.objects.all():
+            adjacency.setdefault(str(component.id), set())
         return adjacency
 
     def _analyze_scc(self, adjacency) -> dict:
@@ -168,8 +170,8 @@ class Command(BaseCommand):
         """Analyze layer violations."""
         # Get layer assignments from database
         layer_assignments = {}
-        for la in LayerAssignment.objects.select_related('project', 'layer').all():
-            layer_assignments[la.project.key] = la.layer.level
+        for la in LayerAssignment.objects.select_related('component', 'layer').all():
+            layer_assignments[str(la.component.id)] = la.layer.level
 
         if not layer_assignments:
             return {
@@ -232,12 +234,12 @@ class Command(BaseCommand):
 
         # Save metrics
         if 'metrics' in results and 'all_metrics' in results['metrics']:
-            projects = {p.key: p for p in Project.objects.all()}
+            components = {str(c.id): c for c in Component.objects.all()}
             for node_key, metrics in results['metrics']['all_metrics'].items():
-                project = projects.get(node_key)
-                if project:
+                component = components.get(node_key)
+                if component:
                     NodeMetrics.objects.update_or_create(
-                        project=project,
+                        component=component,
                         defaults={
                             'analysis_run': analysis_run,
                             'fan_in': metrics.get('fan_in', 0),

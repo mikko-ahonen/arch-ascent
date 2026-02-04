@@ -24,7 +24,7 @@ from django.utils import timezone
 from django.db import transaction
 
 from dependencies.models import (
-    Project, Dependency, AnalysisRun, LayerDefinition,
+    Component, Dependency, AnalysisRun, LayerDefinition,
     LayerAssignment, LayerViolation, NodeMetrics
 )
 from dependencies.components.graph.graph import (
@@ -42,17 +42,19 @@ def build_adjacency() -> dict[str, set[str]]:
     """Build adjacency list from database."""
     adjacency: dict[str, set[str]] = {}
     for dep in Dependency.objects.select_related('source', 'target').all():
-        adjacency.setdefault(dep.source.key, set()).add(dep.target.key)
-    for project in Project.objects.all():
-        adjacency.setdefault(project.key, set())
+        source_key = str(dep.source.id)
+        target_key = str(dep.target.id)
+        adjacency.setdefault(source_key, set()).add(target_key)
+    for component in Component.objects.all():
+        adjacency.setdefault(str(component.id), set())
     return adjacency
 
 
 def get_layer_assignments() -> dict[str, int]:
     """Get layer assignments from database."""
     return {
-        la.project.key: la.layer.level
-        for la in LayerAssignment.objects.select_related('project', 'layer').all()
+        str(la.component.id): la.layer.level
+        for la in LayerAssignment.objects.select_related('component', 'layer').all()
     }
 
 
@@ -250,7 +252,7 @@ class LayerDetailView(View):
         except LayerDefinition.DoesNotExist:
             return JsonResponse({'error': 'Layer not found'}, status=404)
 
-        assignments = LayerAssignment.objects.filter(layer=layer).select_related('project')
+        assignments = LayerAssignment.objects.filter(layer=layer).select_related('component')
 
         return JsonResponse({
             'id': layer.id,
@@ -259,7 +261,7 @@ class LayerDetailView(View):
             'description': layer.description,
             'pattern': layer.pattern,
             'assignments': [
-                {'project': a.project.key, 'auto_assigned': a.auto_assigned}
+                {'component': a.component.name, 'component_id': str(a.component.id), 'auto_assigned': a.auto_assigned}
                 for a in assignments
             ],
         })
@@ -315,7 +317,7 @@ class AutoAssignLayersView(View):
         dry_run = data.get('dry_run', False)
 
         layers = LayerDefinition.objects.exclude(pattern='').order_by('level')
-        projects = Project.objects.all()
+        components = Component.objects.all()
 
         if not layers.exists():
             return JsonResponse({
@@ -323,15 +325,16 @@ class AutoAssignLayersView(View):
             }, status=400)
 
         assignments = []
-        for project in projects:
+        for component in components:
             # Skip manually assigned
-            if LayerAssignment.objects.filter(project=project, auto_assigned=False).exists():
+            if LayerAssignment.objects.filter(component=component, auto_assigned=False).exists():
                 continue
 
             for layer in layers:
-                if layer.pattern and re.match(layer.pattern, project.key):
+                if layer.pattern and re.match(layer.pattern, component.key):
                     assignments.append({
-                        'project': project.key,
+                        'component': str(component.id),
+                        'component_name': component.name,
                         'layer': layer.name,
                         'layer_id': layer.id,
                     })
@@ -346,9 +349,9 @@ class AutoAssignLayersView(View):
         with transaction.atomic():
             for a in assignments:
                 layer = LayerDefinition.objects.get(id=a['layer_id'])
-                project = Project.objects.get(key=a['project'])
+                component = Component.objects.get(id=a['component'])
                 LayerAssignment.objects.update_or_create(
-                    project=project,
+                    component=component,
                     defaults={'layer': layer, 'auto_assigned': True}
                 )
 
@@ -479,10 +482,10 @@ class AnalysisRunDetailView(View):
 
         # Get associated data
         violations = LayerViolation.objects.filter(analysis_run=run).select_related(
-            'source_project', 'target_project', 'source_layer', 'target_layer'
+            'source_component', 'target_component', 'source_layer', 'target_layer'
         )[:20]
 
-        metrics = NodeMetrics.objects.filter(analysis_run=run).select_related('project')[:20]
+        metrics = NodeMetrics.objects.filter(analysis_run=run).select_related('component')[:20]
 
         return JsonResponse({
             'id': run.id,
@@ -496,8 +499,8 @@ class AnalysisRunDetailView(View):
             'error_message': run.error_message,
             'layer_violations': [
                 {
-                    'source': v.source_project.key,
-                    'target': v.target_project.key,
+                    'source': v.source_component.name,
+                    'target': v.target_component.name,
                     'source_layer': v.source_layer.name,
                     'target_layer': v.target_layer.name,
                     'severity': v.severity,
@@ -506,7 +509,7 @@ class AnalysisRunDetailView(View):
             ],
             'sample_metrics': [
                 {
-                    'project': m.project.key,
+                    'component': m.component.name,
                     'instability': m.instability,
                     'coupling_score': m.coupling_score,
                 }

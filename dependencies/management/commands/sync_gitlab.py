@@ -11,8 +11,8 @@ from pathlib import Path
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from dependencies.models import Project, Dependency, NodeGroup
-from dependencies.service import GitLabService, GitLabProject, DEFAULT_POM_CACHE_DIR
+from dependencies.models import Component, Dependency, NodeGroup, GitProject
+from dependencies.service import GitLabService, GitLabProject as GitLabProjectData, DEFAULT_POM_CACHE_DIR
 
 
 class Command(BaseCommand):
@@ -191,8 +191,8 @@ class Command(BaseCommand):
         self.stdout.write(f'  No pom.xml: {skipped_no_pom}')
         self.stdout.write(f'  Errors: {errors}')
 
-    def _fetch_and_save_projects(self, service: GitLabService, projects_file: Path, by_group: bool = False, all_visible: bool = False) -> list[GitLabProject]:
-        """Fetch all projects from GitLab and save to JSON file.
+    def _fetch_and_save_projects(self, service: GitLabService, projects_file: Path, by_group: bool = False, all_visible: bool = False) -> list[GitLabProjectData]:
+        """Fetch all projects from GitLab, save to JSON file, and create GitProject records.
 
         Args:
             service: GitLab service instance
@@ -222,6 +222,21 @@ class Command(BaseCommand):
                 'namespace': project.namespace,
                 'web_url': project.web_url,
             })
+
+            # Create or update GitProject record
+            GitProject.objects.update_or_create(
+                gitlab_id=project.id,
+                defaults={
+                    'name': project.name,
+                    'path': project.path,
+                    'path_with_namespace': project.path_with_namespace,
+                    'namespace': project.namespace or {},
+                    'description': project.description or '',
+                    'web_url': project.web_url or '',
+                    'default_branch': project.default_branch or 'main',
+                }
+            )
+
             # Progress indicator every 100 projects
             if len(projects) % 100 == 0:
                 self.stdout.write(f'  Fetched {len(projects)} projects...')
@@ -233,13 +248,13 @@ class Command(BaseCommand):
 
         return projects
 
-    def _load_projects_from_file(self, projects_file: Path) -> list[GitLabProject]:
+    def _load_projects_from_file(self, projects_file: Path) -> list[GitLabProjectData]:
         """Load projects from JSON file."""
         with open(projects_file) as f:
             projects_data = json.load(f)
 
         return [
-            GitLabProject(
+            GitLabProjectData(
                 id=p['id'],
                 name=p['name'],
                 path=p['path'],
@@ -267,7 +282,7 @@ class Command(BaseCommand):
 
         # Parse all pom.xml files to extract project info and dependencies
         parsed_projects = []
-        parse_errors = 0
+        parse_errors = []
 
         for pom_path in pom_files:
             try:
@@ -275,10 +290,20 @@ class Command(BaseCommand):
                 if parsed:
                     parsed_projects.append(parsed)
             except Exception as e:
-                parse_errors += 1
-                self.stderr.write(f'  Error parsing {pom_path}: {e}')
+                rel_path = str(pom_path.relative_to(cache_dir))
+                parse_errors.append({
+                    'path': rel_path,
+                    'error': str(e),
+                })
 
-        self.stdout.write(f'Parsed {len(parsed_projects)} projects ({parse_errors} errors)')
+        self.stdout.write(f'Parsed {len(parsed_projects)} projects ({len(parse_errors)} errors)')
+
+        # Save errors to file for investigation
+        if parse_errors:
+            errors_file = cache_dir / 'parse_errors.json'
+            with open(errors_file, 'w') as f:
+                json.dump(parse_errors, f, indent=2)
+            self.stdout.write(f'Parse errors saved to {errors_file}')
 
         if dry_run:
             self.stdout.write(self.style.WARNING('\nDry run - not making changes'))
@@ -288,15 +313,24 @@ class Command(BaseCommand):
                 self.stdout.write(f"  ... and {len(parsed_projects) - 10} more")
             return
 
-        # Create/update projects, groups, and dependencies
+        # Create/update components, groups, and dependencies
         with transaction.atomic():
-            created_projects = 0
-            updated_projects = 0
+            created_components = 0
+            updated_components = 0
             created_groups = 0
             created_deps = 0
+            linked_git_projects = 0
 
-            # Build lookup of internal project keys
+            # Build lookup of internal component keys (groupId:artifactId)
             internal_keys = {p['key'] for p in parsed_projects}
+
+            # Build lookup from pom_path to GitProject for linking
+            git_projects_by_path = {}
+            for gp in GitProject.objects.all():
+                git_projects_by_path[gp.path_with_namespace] = gp
+
+            # Track components by key for dependency resolution
+            components_by_key: dict[str, Component] = {}
 
             for proj_data in parsed_projects:
                 # Create or update group
@@ -306,24 +340,56 @@ class Command(BaseCommand):
                     if created:
                         created_groups += 1
 
-                # Create or update project
-                project, created = Project.objects.update_or_create(
-                    key=proj_data['key'],
-                    defaults={
-                        'name': proj_data['name'],
-                        'description': proj_data.get('description', ''),
-                        'group': group,
-                        'internal': True,
-                    }
-                )
-                if created:
-                    created_projects += 1
+                # Try to find existing component by Maven coordinates
+                component = Component.objects.filter(
+                    group_id=proj_data['group_id'],
+                    artifact_id=proj_data['artifact_id']
+                ).first()
+
+                if component:
+                    # Update existing component
+                    component.name = proj_data['name']
+                    component.description = proj_data.get('description', '') or component.description
+                    component.group = group or component.group
+                    component.version = proj_data.get('version', '') or component.version
+                    component.internal = True
+                    component.save()
+                    updated_components += 1
                 else:
-                    updated_projects += 1
+                    # Create new component
+                    component = Component.objects.create(
+                        name=proj_data['name'],
+                        description=proj_data.get('description', ''),
+                        component_type='java',
+                        group_id=proj_data['group_id'],
+                        artifact_id=proj_data['artifact_id'],
+                        version=proj_data.get('version', ''),
+                        group=group,
+                        internal=True,
+                    )
+                    created_components += 1
+
+                components_by_key[proj_data['key']] = component
+
+                # Try to link to GitProject based on pom.xml path
+                pom_path = proj_data.get('pom_path', '')
+                if pom_path:
+                    # Extract git project path from pom path
+                    # e.g., pom_cache/namespace/project/pom.xml -> namespace/project
+                    rel_path = Path(pom_path).relative_to(cache_dir)
+                    git_path = str(rel_path.parent).replace('\\', '/')
+
+                    git_project = git_projects_by_path.get(git_path)
+                    if git_project and not git_project.component:
+                        git_project.component = component
+                        git_project.save()
+                        linked_git_projects += 1
 
             # Second pass: create dependencies
             for proj_data in parsed_projects:
-                source = Project.objects.get(key=proj_data['key'])
+                source = components_by_key.get(proj_data['key'])
+                if not source:
+                    continue
 
                 for dep in proj_data['dependencies']:
                     dep_key = dep['key']
@@ -334,14 +400,27 @@ class Command(BaseCommand):
                     if not is_internal and internal_prefix:
                         is_internal = dep['group_id'].startswith(internal_prefix)
 
-                    # Get or create target project
-                    target, _ = Project.objects.get_or_create(
-                        key=dep_key,
-                        defaults={
-                            'name': dep.get('artifact_id', dep_key),
-                            'internal': is_internal,
-                        }
-                    )
+                    # Get or create target component
+                    target = components_by_key.get(dep_key)
+                    if not target:
+                        # Try to find by Maven coordinates
+                        target = Component.objects.filter(
+                            group_id=dep['group_id'],
+                            artifact_id=dep['artifact_id']
+                        ).first()
+
+                        if not target:
+                            # Create new external component
+                            target = Component.objects.create(
+                                name=dep.get('artifact_id', dep_key),
+                                component_type='java',
+                                group_id=dep['group_id'],
+                                artifact_id=dep['artifact_id'],
+                                version=dep.get('version', ''),
+                                internal=is_internal,
+                            )
+
+                        components_by_key[dep_key] = target
 
                     # Create dependency if not exists
                     _, created = Dependency.objects.get_or_create(
@@ -354,10 +433,11 @@ class Command(BaseCommand):
                         created_deps += 1
 
             self.stdout.write(f'\nPhase 2 Summary:')
-            self.stdout.write(f'  Projects created: {created_projects}')
-            self.stdout.write(f'  Projects updated: {updated_projects}')
+            self.stdout.write(f'  Components created: {created_components}')
+            self.stdout.write(f'  Components updated: {updated_components}')
             self.stdout.write(f'  Groups created: {created_groups}')
             self.stdout.write(f'  Dependencies created: {created_deps}')
+            self.stdout.write(f'  Git projects linked: {linked_git_projects}')
 
     def parse_pom_xml(self, pom_path: Path, cache_dir: Path) -> dict | None:
         """Parse a pom.xml file and extract project info and dependencies.
