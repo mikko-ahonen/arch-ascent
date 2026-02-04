@@ -82,6 +82,16 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip fetching project list from GitLab, use existing projects.json',
         )
+        parser.add_argument(
+            '--by-group',
+            action='store_true',
+            help='Fetch projects by iterating through groups (more reliable for large instances)',
+        )
+        parser.add_argument(
+            '--all-visible',
+            action='store_true',
+            help='Fetch all visible projects, not just projects where you are a member',
+        )
 
     def handle(self, *args, **options):
         # Determine which phases to run
@@ -137,8 +147,15 @@ class Command(BaseCommand):
                 projects = self._load_projects_from_file(projects_file)
                 self.stdout.write(f'Loaded {len(projects)} projects from file')
             else:
-                self.stdout.write('Fetching project list from GitLab...')
-                projects = self._fetch_and_save_projects(service, projects_file)
+                by_group = options.get('by_group', False)
+                all_visible = options.get('all_visible', False)
+                if by_group:
+                    self.stdout.write('Fetching project list from GitLab (by group)...')
+                elif all_visible:
+                    self.stdout.write('Fetching all visible projects from GitLab...')
+                else:
+                    self.stdout.write('Fetching project list from GitLab (member projects only)...')
+                projects = self._fetch_and_save_projects(service, projects_file, by_group=by_group, all_visible=all_visible)
                 self.stdout.write(f'Fetched {len(projects)} projects, saved to {projects_file}')
 
             # Step 2: Process each project
@@ -174,12 +191,26 @@ class Command(BaseCommand):
         self.stdout.write(f'  No pom.xml: {skipped_no_pom}')
         self.stdout.write(f'  Errors: {errors}')
 
-    def _fetch_and_save_projects(self, service: GitLabService, projects_file: Path) -> list[GitLabProject]:
-        """Fetch all projects from GitLab and save to JSON file."""
+    def _fetch_and_save_projects(self, service: GitLabService, projects_file: Path, by_group: bool = False, all_visible: bool = False) -> list[GitLabProject]:
+        """Fetch all projects from GitLab and save to JSON file.
+
+        Args:
+            service: GitLab service instance
+            projects_file: Path to save projects JSON
+            by_group: If True, fetch projects by iterating through groups (more reliable)
+            all_visible: If True, fetch all visible projects (not just member projects)
+        """
         projects = []
         projects_data = []
 
-        for project in service.get_projects():
+        if by_group:
+            project_iter = service.get_all_projects_by_group()
+        else:
+            # membership=None means all visible, membership=True means only member projects
+            membership = None if all_visible else True
+            project_iter = service.get_projects(membership=membership)
+
+        for project in project_iter:
             projects.append(project)
             projects_data.append({
                 'id': project.id,

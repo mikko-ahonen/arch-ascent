@@ -674,24 +674,71 @@ class GitLabService:
                 break
             page = int(next_page)
 
+    def get_groups(self, min_access_level: int | None = None) -> Iterator[dict]:
+        """Fetch all accessible groups.
+
+        Args:
+            min_access_level: Minimum access level (10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner)
+
+        Yields:
+            Group dictionaries with id, name, full_path, etc.
+        """
+        params = {}
+        if min_access_level:
+            params['min_access_level'] = min_access_level
+
+        yield from self._get_paginated('groups', params)
+
+    def get_group_projects(
+        self,
+        group_id: int,
+        include_subgroups: bool = True,
+        archived: bool = False,
+    ) -> Iterator[GitLabProject]:
+        """Fetch all projects within a group.
+
+        Args:
+            group_id: GitLab group ID
+            include_subgroups: Include projects from subgroups
+            archived: Include archived projects
+        """
+        params = {
+            'include_subgroups': str(include_subgroups).lower(),
+            'archived': str(archived).lower(),
+            'simple': 'false',
+        }
+
+        for proj in self._get_paginated(f'groups/{group_id}/projects', params):
+            yield GitLabProject(
+                id=proj['id'],
+                name=proj['name'],
+                path=proj['path'],
+                path_with_namespace=proj['path_with_namespace'],
+                description=proj.get('description') or '',
+                default_branch=proj.get('default_branch') or 'main',
+                namespace=proj.get('namespace', {}),
+                web_url=proj.get('web_url', ''),
+            )
+
     def get_projects(
         self,
-        membership: bool = True,
+        membership: bool | None = None,
         archived: bool = False,
         min_access_level: int | None = None,
     ) -> Iterator[GitLabProject]:
         """Fetch all accessible projects.
 
         Args:
-            membership: Only return projects where the user is a member
+            membership: If True, only projects where user is a member. If False/None, all visible projects.
             archived: Include archived projects
             min_access_level: Minimum access level (10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner)
         """
         params = {
-            'membership': str(membership).lower(),
             'archived': str(archived).lower(),
             'simple': 'false',
         }
+        if membership is not None:
+            params['membership'] = str(membership).lower()
         if min_access_level:
             params['min_access_level'] = min_access_level
 
@@ -706,6 +753,32 @@ class GitLabService:
                 namespace=proj.get('namespace', {}),
                 web_url=proj.get('web_url', ''),
             )
+
+    def get_all_projects_by_group(
+        self,
+        min_access_level: int | None = None,
+        archived: bool = False,
+    ) -> Iterator[GitLabProject]:
+        """Fetch all projects by iterating through groups.
+
+        This is more reliable than the global /projects endpoint for large instances.
+        Automatically deduplicates projects that appear in multiple groups.
+
+        Args:
+            min_access_level: Minimum access level for groups
+            archived: Include archived projects
+        """
+        seen_ids: set[int] = set()
+
+        for group in self.get_groups(min_access_level=min_access_level):
+            group_id = group['id']
+            group_path = group.get('full_path', group.get('path', str(group_id)))
+            logger.info(f"Fetching projects from group: {group_path}")
+
+            for project in self.get_group_projects(group_id, include_subgroups=False, archived=archived):
+                if project.id not in seen_ids:
+                    seen_ids.add(project.id)
+                    yield project
 
     def get_file_content(
         self,
