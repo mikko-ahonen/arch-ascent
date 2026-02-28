@@ -172,8 +172,8 @@ RUN pip install playwright && playwright install chromium || true
 COPY --chown=dev:dev dev/exrc /home/dev/.exrc
 COPY --chown=dev:dev dev/screenrc /home/dev/.screenrc
 
-# Git configuration for SSH key in repo
-RUN echo 'git config --global core.sshCommand "ssh -i /src/id_ed25519" >> "$BASH_ENV" \
+# Git configuration for SSH key
+RUN echo 'git config --global core.sshCommand "ssh -i /home/dev/.ssh/id_ed25519"' >> "$BASH_ENV" \
     && echo 'git config --global --add safe.directory /src' >> "$BASH_ENV"
 
 # Useful aliases
