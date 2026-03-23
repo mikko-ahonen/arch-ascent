@@ -31,5 +31,5 @@ playwright>=1.40.0
 # Parsing
 pyparsing>=3.1.0
 
-# Maven dependency resolution
-maven-dependencies @ https://github.com/mikko-ahonen/maven-dependencies/archive/refs/heads/main.tar.gz
+# Maven dependency resolution (install separately)
+# pip install https://github.com/mikko-ahonen/maven-dependencies/archive/2f82788afb06f4b028ccfa87c25090a1eeab1eba.tar.gz
