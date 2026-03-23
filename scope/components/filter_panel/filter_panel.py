@@ -6,7 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
-from dependencies.models import Project, NodeGroup
+from dependencies.models import Component, NodeGroup
 from scope.classifier import (
     STATUS_CHOICES, STATUS_COLORS,
     get_status_counts, get_connectivity_counts,
@@ -44,14 +44,14 @@ class FilterPanel(Component):
         connectivity_counts = get_connectivity_counts()
 
         # Get internal/external counts
-        internal_count = Project.objects.filter(internal=True).count()
-        external_count = Project.objects.filter(internal=False).count()
+        internal_count = Component.objects.filter(internal=True).count()
+        external_count = Component.objects.filter(internal=False).count()
 
         # Get ungrouped projects count
-        ungrouped_count = Project.objects.filter(group__isnull=True).count()
+        ungrouped_count = Component.objects.filter(group__isnull=True).count()
 
         # Get untagged projects count
-        untagged_count = Project.objects.filter(tags__isnull=True).count()
+        untagged_count = Component.objects.filter(tags__isnull=True).count()
 
         # Get all tags with counts
         from taggit.models import Tag
@@ -140,7 +140,7 @@ class FilterPanel(Component):
         }
 
         filtered_count = self._get_filtered_count(current_filter)
-        total_count = Project.objects.count()
+        total_count = Component.objects.count()
 
         return {
             # Counts
@@ -168,7 +168,7 @@ class FilterPanel(Component):
         """Calculate how many projects match the current filter config."""
         from scope.classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
 
-        queryset = Project.objects.all()
+        queryset = Component.objects.all()
 
         # Filter by internal/external
         if not filter_config.get('include_external', False):
@@ -294,7 +294,7 @@ def filter_apply(request: HttpRequest) -> JsonResponse:
     # Get filtered project IDs
     from scope.classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
 
-    queryset = Project.objects.all()
+    queryset = Component.objects.all()
 
     # Filter by internal/external
     if not filter_config.get('include_external', False):
@@ -402,5 +402,5 @@ def filter_counts(request: HttpRequest) -> JsonResponse:
     return JsonResponse({
         'status': status_counts,
         'connectivity': connectivity_counts,
-        'total': Project.objects.count(),
+        'total': Component.objects.count(),
     })

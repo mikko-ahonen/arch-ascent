@@ -2,7 +2,7 @@
 Management command to create test vision data for development.
 """
 from django.core.management.base import BaseCommand
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from vision.models import Vision, Layer, Group, GroupMembership, Reference, Statement
 
 
@@ -38,7 +38,7 @@ class Command(BaseCommand):
 
         projects = {}
         for key, name, desc in projects_data:
-            project, created = Project.objects.get_or_create(
+            project, created = Component.objects.get_or_create(
                 key=key,
                 defaults={'name': name, 'description': desc}
             )

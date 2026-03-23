@@ -99,16 +99,16 @@ def layered_with_violations():
 @pytest.fixture(scope='function')
 def sample_projects(db):
     """Create sample projects in database."""
-    from dependencies.models import Project
+    from dependencies.models import Component
 
     projects = []
     for name in ['A', 'B', 'C', 'D', 'E', 'F']:
-        project = Project.objects.create(
+        component = Component.objects.create(
             key=name,
             name=f'Project {name}',
             description=f'Test project {name}'
         )
-        projects.append(project)
+        projects.append(component)
     return projects
 
 

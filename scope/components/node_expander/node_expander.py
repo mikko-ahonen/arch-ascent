@@ -8,7 +8,7 @@ from django.http import HttpRequest, JsonResponse
 from django.db.models import Q
 from django.views.decorators.csrf import csrf_exempt
 
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from dependencies.components.graph.graph import traverse_graph
 
 
@@ -25,7 +25,7 @@ def build_adjacency_directed() -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = {}
 
     # Add all projects as nodes (even if no dependencies)
-    for project in Project.objects.all():
+    for project in Component.objects.all():
         adjacency.setdefault(project.key, set())
 
     # Add edges from dependencies
@@ -47,7 +47,7 @@ def node_search(request: HttpRequest) -> JsonResponse:
     if not query or len(query) < 2:
         return JsonResponse({'results': []})
 
-    projects = Project.objects.filter(
+    projects = Component.objects.filter(
         Q(name__icontains=query) |
         Q(key__icontains=query) |
         Q(basename__icontains=query)
@@ -78,7 +78,7 @@ def expand_node(request: HttpRequest) -> JsonResponse:
         return JsonResponse({'error': 'node_key required'}, status=400)
 
     # Validate node exists
-    if not Project.objects.filter(key=node_key).exists():
+    if not Component.objects.filter(key=node_key).exists():
         return JsonResponse({'error': 'Node not found'}, status=404)
 
     # Parse and validate parameters
@@ -108,7 +108,7 @@ def expand_node(request: HttpRequest) -> JsonResponse:
         all_keys.extend(depth_nodes)
 
     # Get project IDs for the keys
-    projects = Project.objects.filter(key__in=all_keys)
+    projects = Component.objects.filter(key__in=all_keys)
     project_ids = list(projects.values_list('id', flat=True))
     project_keys = list(projects.values_list('key', flat=True))
 

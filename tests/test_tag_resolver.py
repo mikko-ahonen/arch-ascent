@@ -2,7 +2,7 @@
 Tests for Tag Expression Resolver Service (using django-taggit).
 """
 import pytest
-from dependencies.models import Project
+from dependencies.models import Component
 from vision.models import Vision, Reference
 from dependencies.services.tag_resolver import (
     resolve_tag_expression,
@@ -19,11 +19,11 @@ from vision.services.tag_resolver import resolve_reference
 def sample_projects():
     """Create sample projects for testing."""
     projects = [
-        Project.objects.create(key="payment-api", name="Payment API"),
-        Project.objects.create(key="payment-worker", name="Payment Worker"),
-        Project.objects.create(key="user-api", name="User API"),
-        Project.objects.create(key="user-worker", name="User Worker"),
-        Project.objects.create(key="gateway", name="Gateway"),
+        Component.objects.create(key="payment-api", name="Payment API"),
+        Component.objects.create(key="payment-worker", name="Payment Worker"),
+        Component.objects.create(key="user-api", name="User API"),
+        Component.objects.create(key="user-worker", name="User Worker"),
+        Component.objects.create(key="gateway", name="Gateway"),
     ]
     return {p.key: p for p in projects}
 

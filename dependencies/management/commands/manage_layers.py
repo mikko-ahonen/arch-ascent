@@ -157,7 +157,7 @@ class Command(BaseCommand):
         component = None
         if ':' in component_key:
             parts = component_key.split(':', 1)
-            component = Component.objects.filter(group_id=parts[0], artifact_id=parts[1]).first()
+            component = Component.objects.filter(maven_group_id=parts[0], artifact_id=parts[1]).first()
         if not component:
             try:
                 component = Component.objects.get(id=component_key)

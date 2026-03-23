@@ -46,7 +46,7 @@ from vision.models import (
     Vision, Layer, Group, GroupMembership, LayerNodePosition,
     Reference, Statement
 )
-from dependencies.models import Project
+from dependencies.models import Component
 from vision.services.tag_resolver import (
     resolve_reference, get_all_tags, assign_tag_to_project, remove_tag_from_project
 )
@@ -693,7 +693,7 @@ class GroupMembersView(View):
         added = []
         for key in project_keys:
             try:
-                project = Project.objects.get(key=key)
+                project = Component.objects.get(key=key)
                 _, created = GroupMembership.objects.get_or_create(
                     group=group,
                     project=project,
@@ -701,7 +701,7 @@ class GroupMembersView(View):
                 )
                 if created:
                     added.append(key)
-            except Project.DoesNotExist:
+            except Component.DoesNotExist:
                 pass
 
         return JsonResponse({
@@ -757,7 +757,7 @@ class LayerNodePositionsView(View):
 
         for project_key, pos in positions.items():
             try:
-                project = Project.objects.get(key=project_key)
+                project = Component.objects.get(key=project_key)
                 LayerNodePosition.objects.update_or_create(
                     layer=layer,
                     project=project,
@@ -767,7 +767,7 @@ class LayerNodePositionsView(View):
                     }
                 )
                 updated += 1
-            except Project.DoesNotExist:
+            except Component.DoesNotExist:
                 pass
 
         return JsonResponse({

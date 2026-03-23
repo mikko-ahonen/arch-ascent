@@ -4,8 +4,8 @@ from .models import Component, Dependency, GitProject, SonarProject, CheckmarxPr
 
 @admin.register(Component)
 class ComponentAdmin(admin.ModelAdmin):
-    list_display = ['name', 'component_type', 'group_id', 'artifact_id', 'internal', 'synced_at']
-    search_fields = ['name', 'group_id', 'artifact_id']
+    list_display = ['name', 'component_type', 'maven_group_id', 'artifact_id', 'internal', 'synced_at']
+    search_fields = ['name', 'maven_group_id', 'artifact_id']
     list_filter = ['component_type', 'internal', 'status']
     readonly_fields = ['id', 'synced_at']
 

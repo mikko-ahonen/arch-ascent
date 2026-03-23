@@ -113,7 +113,7 @@ def sync_projects(service: SonarQubeService | None = None) -> int:
                 if ':' in sonar_project.key:
                     parts = sonar_project.key.split(':', 1)
                     component = Component.objects.filter(
-                        group_id=parts[0],
+                        maven_group_id=parts[0],
                         artifact_id=parts[1]
                     ).first()
 
@@ -128,7 +128,7 @@ def sync_projects(service: SonarQubeService | None = None) -> int:
                     # Set Maven coordinates if available
                     if ':' in sonar_project.key:
                         parts = sonar_project.key.split(':', 1)
-                        component.group_id = parts[0]
+                        component.maven_group_id = parts[0]
                         component.artifact_id = parts[1]
                         component.save()
 
@@ -593,7 +593,7 @@ def import_from_cached_sboms(
             component = None
             if group_id and artifact_id:
                 component = Component.objects.filter(
-                    group_id=group_id,
+                    maven_group_id=group_id,
                     artifact_id=artifact_id
                 ).first()
 
@@ -610,7 +610,7 @@ def import_from_cached_sboms(
                     name=full_name,
                     description=f'v{version}' if version else '',
                     component_type='java',
-                    group_id=group_id,
+                    maven_group_id=group_id,
                     artifact_id=artifact_id,
                     version=version,
                     internal=is_internal,

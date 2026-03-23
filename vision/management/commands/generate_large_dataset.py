@@ -4,7 +4,7 @@ Creates multiple layers with intentionally conflicting groupings.
 """
 import random
 from django.core.management.base import BaseCommand
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from vision.models import Vision, Layer, Group, GroupMembership
 
 
@@ -191,11 +191,12 @@ class Command(BaseCommand):
         # Create projects
         projects = {}
         for service_name in sorted(all_services):
-            project, created = Project.objects.get_or_create(
+            project, created = Component.objects.get_or_create(
                 key=service_name,
                 defaults={
                     'name': service_name.replace('-', ' ').title(),
-                    'description': f'{service_name} microservice'
+                    'description': f'{service_name} microservice',
+                    'component_type': 'service',
                 }
             )
             projects[service_name] = project

@@ -3,7 +3,7 @@ Tag Expression Resolver for Vision app.
 
 Re-exports tag functions from dependencies and adds Reference resolution.
 """
-from dependencies.models import Project
+from dependencies.models import Component
 
 # Re-export tag functions from dependencies
 from dependencies.services.tag_resolver import (
@@ -30,7 +30,7 @@ def resolve_reference(reference) -> set[str]:
         # Return explicit members (validate they exist)
         explicit_keys = set(reference.explicit_members or [])
         existing_keys = set(
-            Project.objects.filter(key__in=explicit_keys).values_list('key', flat=True)
+            Component.objects.filter(key__in=explicit_keys).values_list('key', flat=True)
         )
         return existing_keys
 

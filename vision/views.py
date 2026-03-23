@@ -194,7 +194,7 @@ def vision_form(request):
 
         # If we have scope projects, create a default layer and group with them
         if scope_project_ids:
-            from dependencies.models import Project
+            from dependencies.models import Component
             # Create a default layer
             default_layer = Layer.objects.create(
                 vision=vision,
@@ -212,7 +212,7 @@ def vision_form(request):
                 color='#0d6efd'
             )
             # Add all selected projects to the group
-            projects = Project.objects.filter(id__in=scope_project_ids)
+            projects = Component.objects.filter(id__in=scope_project_ids)
             for project in projects:
                 GroupMembership.objects.create(
                     group=default_group,
@@ -811,7 +811,7 @@ def reference_delete(request):
 @require_http_methods(["POST"])
 def layer_from_reference(request):
     """Create a layer from a reference's members."""
-    from dependencies.models import Project
+    from dependencies.models import Component
     from vision.services.tag_resolver import resolve_reference
 
     reference_id = request.GET.get('reference_id')
@@ -853,7 +853,7 @@ def layer_from_reference(request):
     # Resolve the reference to get member project keys
     project_keys = resolve_reference(reference)
     if project_keys:
-        projects = Project.objects.filter(key__in=project_keys)
+        projects = Component.objects.filter(key__in=project_keys)
         for project in projects:
             GroupMembership.objects.create(
                 group=group,

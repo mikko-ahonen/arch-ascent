@@ -53,7 +53,7 @@ class Command(BaseCommand):
                             name=name,
                             description=f"{name} for {domain} domain",
                             component_type='service',
-                            group_id=domain,
+                            maven_group_id=domain,
                             artifact_id=f"{service}-{svc_type}",
                             group=groups[domain],
                         )
@@ -71,7 +71,7 @@ class Command(BaseCommand):
                 name=name,
                 description=f"Additional service {num}",
                 component_type='service',
-                group_id='misc',
+                maven_group_id='misc',
                 artifact_id=f"{svc}-{num}",
                 group=groups['misc'],
             )

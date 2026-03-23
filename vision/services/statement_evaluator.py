@@ -6,7 +6,7 @@ Evaluates architectural intent statements against current state.
 from typing import Optional
 from django.utils import timezone
 from vision.models import Statement, Reference, Group, GroupMembership
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from vision.services.tag_resolver import resolve_reference, resolve_tag_expression
 
 

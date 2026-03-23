@@ -465,7 +465,7 @@ class Command(BaseCommand):
 
                 # Try to find existing component by Maven coordinates
                 component = Component.objects.filter(
-                    group_id=proj_data['group_id'],
+                    maven_group_id=proj_data['group_id'],
                     artifact_id=proj_data['artifact_id']
                 ).first()
 
@@ -484,7 +484,7 @@ class Command(BaseCommand):
                         name=proj_data['name'],
                         description=proj_data.get('description', ''),
                         component_type='java',
-                        group_id=proj_data['group_id'],
+                        maven_group_id=proj_data['group_id'],
                         artifact_id=proj_data['artifact_id'],
                         version=proj_data.get('version', ''),
                         group=group,
@@ -552,7 +552,7 @@ class Command(BaseCommand):
                     if not target:
                         # Try to find by Maven coordinates
                         target = Component.objects.filter(
-                            group_id=dep['group_id'],
+                            maven_group_id=dep['group_id'],
                             artifact_id=dep['artifact_id']
                         ).first()
 
@@ -561,7 +561,7 @@ class Command(BaseCommand):
                             target = Component.objects.create(
                                 name=dep.get('artifact_id', dep_key),
                                 component_type='java',
-                                group_id=dep['group_id'],
+                                maven_group_id=dep['group_id'],
                                 artifact_id=dep['artifact_id'],
                                 version=dep.get('version', ''),
                                 internal=is_internal,

@@ -191,7 +191,7 @@ class GroupMembership(models.Model):
         related_name='memberships'
     )
     project = models.ForeignKey(
-        'dependencies.Project',
+        'dependencies.Component',
         on_delete=models.CASCADE,
         related_name='vision_group_memberships'
     )
@@ -218,7 +218,7 @@ class LayerNodePosition(models.Model):
         related_name='node_positions'
     )
     project = models.ForeignKey(
-        'dependencies.Project',
+        'dependencies.Component',
         on_delete=models.CASCADE,
         related_name='vision_layer_positions'
     )

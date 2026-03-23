@@ -3,7 +3,7 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
-from dependencies.models import Project
+from dependencies.models import Component
 from .classifier import (
     STATUS_COLORS,
     get_status_counts, get_connectivity_counts,
@@ -17,7 +17,7 @@ def scoping(request):
 
     Allows users to filter and select which projects to focus on.
     """
-    projects = Project.objects.select_related('group').prefetch_related('tags').order_by('name')
+    projects = Component.objects.select_related('group').prefetch_related('tags').order_by('name')
 
     # Get counts for display
     status_counts = get_status_counts()
@@ -62,11 +62,11 @@ def bulk_update_status(request):
     project_ids = data.get('project_ids', [])
     status = data.get('status', '')
 
-    valid_statuses = [choice[0] for choice in Project.STATUS_CHOICES]
+    valid_statuses = [choice[0] for choice in Component.STATUS_CHOICES]
     if status not in valid_statuses:
         return JsonResponse({'error': 'Invalid status'}, status=400)
 
-    updated = Project.objects.filter(id__in=project_ids).update(status=status)
+    updated = Component.objects.filter(id__in=project_ids).update(status=status)
     return JsonResponse({'success': True, 'updated': updated})
 
 
@@ -89,7 +89,7 @@ def bulk_update_tags(request):
     if not tag:
         return JsonResponse({'error': 'Tag is required'}, status=400)
 
-    projects = Project.objects.filter(id__in=project_ids)
+    projects = Component.objects.filter(id__in=project_ids)
 
     if action == 'add':
         for project in projects:

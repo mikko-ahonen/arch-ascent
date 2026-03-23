@@ -4,7 +4,7 @@ Tests for Vision Creation System models.
 import pytest
 from django.test import TestCase
 from taggit.models import Tag
-from dependencies.models import Project
+from dependencies.models import Component
 from vision.models import (
     Vision, Layer, Group, GroupMembership, LayerNodePosition,
     Reference, Statement
@@ -119,7 +119,7 @@ class TestGroupMembership:
 
     def test_add_project_to_group(self):
         """Test adding a project to a group."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         vision = Vision.objects.create(name="Test Vision")
         layer = Layer.objects.create(key="layer", name="Layer", vision=vision)
         group = Group.objects.create(key="group", name="Group", layer=layer)
@@ -134,7 +134,7 @@ class TestGroupMembership:
 
     def test_project_in_multiple_groups(self):
         """Test that a project can be in multiple groups (overlapping)."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         vision = Vision.objects.create(name="Test Vision")
         layer = Layer.objects.create(key="layer", name="Layer", vision=vision)
         group1 = Group.objects.create(key="group1", name="Group 1", layer=layer)
@@ -152,7 +152,7 @@ class TestLayerNodePosition:
 
     def test_set_node_position(self):
         """Test setting a project's position in a layer."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         vision = Vision.objects.create(name="Test Vision")
         layer = Layer.objects.create(key="layer", name="Layer", vision=vision)
 
@@ -167,7 +167,7 @@ class TestLayerNodePosition:
 
     def test_unique_position_per_layer(self):
         """Test that a project has one position per layer."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         vision = Vision.objects.create(name="Test Vision")
         layer = Layer.objects.create(key="layer", name="Layer", vision=vision)
 
@@ -183,7 +183,7 @@ class TestTaggitIntegration:
 
     def test_add_tags_to_project(self):
         """Test adding tags to a project via TaggableManager."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         project.tags.add("payment", "api")
 
         assert project.tags.count() == 2
@@ -193,18 +193,18 @@ class TestTaggitIntegration:
 
     def test_filter_projects_by_tag(self):
         """Test filtering projects by tag."""
-        project1 = Project.objects.create(key="service-a", name="Service A")
-        project2 = Project.objects.create(key="service-b", name="Service B")
+        project1 = Component.objects.create(key="service-a", name="Service A")
+        project2 = Component.objects.create(key="service-b", name="Service B")
         project1.tags.add("payment")
         project2.tags.add("user")
 
-        payment_projects = Project.objects.filter(tags__name="payment")
+        payment_projects = Component.objects.filter(tags__name="payment")
         assert payment_projects.count() == 1
         assert payment_projects.first().key == "service-a"
 
     def test_remove_tag_from_project(self):
         """Test removing a tag from a project."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         project.tags.add("payment", "api")
         project.tags.remove("payment")
 
@@ -213,7 +213,7 @@ class TestTaggitIntegration:
 
     def test_tag_creates_on_demand(self):
         """Test that taggit creates tags automatically when assigned."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         project.tags.add("new-tag")
 
         # Tag should exist in database
@@ -221,7 +221,7 @@ class TestTaggitIntegration:
 
     def test_clear_all_tags(self):
         """Test clearing all tags from a project."""
-        project = Project.objects.create(key="service-a", name="Service A")
+        project = Component.objects.create(key="service-a", name="Service A")
         project.tags.add("payment", "api", "domain")
         project.tags.clear()
 

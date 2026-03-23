@@ -2,7 +2,7 @@
 Tests for Statement Evaluator Service.
 """
 import pytest
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from vision.models import (
     Vision, Layer, Group, GroupMembership, Reference, Statement
 )
@@ -18,10 +18,10 @@ def vision_with_structure():
     """Create a vision with layers, groups, and projects."""
     # Create projects
     projects = {
-        "payment-api": Project.objects.create(key="payment-api", name="Payment API"),
-        "payment-worker": Project.objects.create(key="payment-worker", name="Payment Worker"),
-        "user-api": Project.objects.create(key="user-api", name="User API"),
-        "gateway": Project.objects.create(key="gateway", name="Gateway"),
+        "payment-api": Component.objects.create(key="payment-api", name="Payment API"),
+        "payment-worker": Component.objects.create(key="payment-worker", name="Payment Worker"),
+        "user-api": Component.objects.create(key="user-api", name="User API"),
+        "gateway": Component.objects.create(key="gateway", name="Gateway"),
     }
 
     # Create vision with layer and groups

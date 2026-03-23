@@ -8,7 +8,7 @@ from django_components import component
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from vision.models import Vision, Layer, Group, GroupMembership, LayerNodePosition, VisionVersion
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from dependencies.components.graph.graph import (
     DependencyGraph,
     get_cycle_edges,
@@ -188,7 +188,7 @@ class VisionCanvas(component.Component):
                 scoped_project_keys.update(group_data.get('members', []))
 
         # Load only scoped projects
-        scoped_projects = {p.key: p for p in Project.objects.filter(key__in=scoped_project_keys)}
+        scoped_projects = {p.key: p for p in Component.objects.filter(key__in=scoped_project_keys)}
 
         # Build node positions lookup from snapshot (collect all positions first)
         snapshot_positions = {}  # {project_key: {x, y}}
@@ -368,7 +368,7 @@ class VisionCanvas(component.Component):
                         group_id_map[group_id_str] = group
                         # Add members to group
                         for member_key in members:
-                            project = Project.objects.filter(key=member_key).first()
+                            project = Component.objects.filter(key=member_key).first()
                             if project:
                                 GroupMembership.objects.get_or_create(
                                     group=group,
@@ -391,7 +391,7 @@ class VisionCanvas(component.Component):
             for node_data in nodes:
                 project_key = node_data.get('id')
                 if project_key and not project_key.startswith(('layer-', 'group-')):
-                    project = Project.objects.filter(key=project_key).first()
+                    project = Component.objects.filter(key=project_key).first()
                     if project and layer:
                         # Save position for this layer
                         LayerNodePosition.objects.update_or_create(

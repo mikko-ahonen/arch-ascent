@@ -1,17 +1,17 @@
 """Project status classification logic."""
 from django.db.models import Count, Q, Exists, OuterRef
 
-from dependencies.models import Project
+from dependencies.models import Component
 
 
-# Status constants - must match Project.STATUS_CHOICES
+# Status constants - must match Component.STATUS_CHOICES
 STATUS_ACTIVE = 'active'
 STATUS_STALE = 'stale'
 STATUS_DORMANT = 'dormant'
 STATUS_NOT_ANALYZED = 'not_analyzed'
 STATUS_ORPHAN = 'orphan'
 
-STATUS_CHOICES = Project.STATUS_CHOICES
+STATUS_CHOICES = Component.STATUS_CHOICES
 
 STATUS_COLORS = {
     STATUS_ACTIVE: '#28a745',        # Green
@@ -59,7 +59,7 @@ def get_status_counts(queryset=None):
         dict: Status counts like {'active': 150, 'stale': 200, ...}
     """
     if queryset is None:
-        queryset = Project.objects.all()
+        queryset = Component.objects.all()
 
     # Count by status field
     counts = {
@@ -99,10 +99,10 @@ def build_adjacency_undirected():
     Returns:
         tuple: (adjacency dict, id_to_key dict, key_to_id dict)
     """
-    from dependencies.models import Project, Dependency
+    from dependencies.models import Component, Dependency
 
     # Map project keys to IDs and vice versa
-    projects = {p.key: p.id for p in Project.objects.all()}
+    projects = {p.key: p.id for p in Component.objects.all()}
     id_to_key = {v: k for k, v in projects.items()}
 
     # Build undirected adjacency (both directions)
@@ -166,7 +166,7 @@ def get_main_cluster_ids():
     Returns:
         set: Set of project IDs in the main cluster
     """
-    from dependencies.models import Project
+    from dependencies.models import Component
 
     components = find_connected_components()
     if not components:
@@ -176,7 +176,7 @@ def get_main_cluster_ids():
 
     # Convert keys to IDs
     return set(
-        Project.objects.filter(key__in=main_cluster_keys).values_list('id', flat=True)
+        Component.objects.filter(key__in=main_cluster_keys).values_list('id', flat=True)
     )
 
 
@@ -205,7 +205,7 @@ def get_disconnected_project_ids():
     Returns:
         set: Set of project IDs in smaller/disconnected clusters
     """
-    from dependencies.models import Project
+    from dependencies.models import Component
 
     components = find_connected_components()
     if len(components) <= 1:
@@ -217,7 +217,7 @@ def get_disconnected_project_ids():
         disconnected_keys.update(cluster)
 
     return set(
-        Project.objects.filter(key__in=disconnected_keys).values_list('id', flat=True)
+        Component.objects.filter(key__in=disconnected_keys).values_list('id', flat=True)
     )
 
 
@@ -234,11 +234,11 @@ def get_unused_project_ids():
     Returns:
         set: Set of project IDs with no dependents
     """
-    from dependencies.models import Project, Dependency
+    from dependencies.models import Component, Dependency
 
     has_dependents = Dependency.objects.filter(target=OuterRef('pk'))
 
-    unused = Project.objects.annotate(
+    unused = Component.objects.annotate(
         has_dependents=Exists(has_dependents)
     ).filter(
         has_dependents=False
@@ -256,10 +256,10 @@ def get_connectivity_counts(queryset=None):
     Returns:
         dict: Counts like {'unused': 50, 'disconnected': 20, 'main_cluster': 630}
     """
-    from dependencies.models import Project
+    from dependencies.models import Component
 
     if queryset is None:
-        queryset = Project.objects.all()
+        queryset = Component.objects.all()
 
     total = queryset.count()
     main_cluster_ids = get_main_cluster_ids()

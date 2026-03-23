@@ -30,3 +30,6 @@ playwright>=1.40.0
 
 # Parsing
 pyparsing>=3.1.0
+
+# Maven dependency resolution
+maven-dependencies @ git+https://github.com/mikko-ahonen/maven-dependencies.git

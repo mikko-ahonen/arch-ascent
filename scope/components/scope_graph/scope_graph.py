@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
-from dependencies.models import Project, Dependency
+from dependencies.models import Component, Dependency
 from dependencies.components.graph.graph import (
     DependencyGraph,
     get_cycle_edges,
@@ -24,7 +24,7 @@ def get_graph_data_for_keys(project_keys: list[str]) -> dict:
     has_positions = False
 
     # Load projects
-    projects = {p.key: p for p in Project.objects.filter(key__in=project_keys)}
+    projects = {p.key: p for p in Component.objects.filter(key__in=project_keys)}
 
     if not projects:
         return {"nodes": [], "edges": [], "has_positions": False, "cycle_edge_count": 0}
@@ -119,7 +119,7 @@ def scope_graph_cycles(request):
         return JsonResponse({"cycles": []})
 
     # Load projects and build adjacency
-    projects = {p.key: p for p in Project.objects.filter(key__in=project_keys)}
+    projects = {p.key: p for p in Component.objects.filter(key__in=project_keys)}
     if not projects:
         return JsonResponse({"cycles": []})
 

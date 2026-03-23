@@ -111,11 +111,11 @@ class ProjectFilter(models.Model):
             Filtered queryset
         """
         import fnmatch
-        from dependencies.models import Project
+        from dependencies.models import Component
         from .classifier import filter_by_status, get_main_cluster_ids, get_unused_project_ids
 
         if queryset is None:
-            queryset = Project.objects.all()
+            queryset = Component.objects.all()
 
         # Filter by status
         statuses = self.get_included_statuses()

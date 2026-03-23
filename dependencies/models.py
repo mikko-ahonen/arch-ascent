@@ -80,12 +80,13 @@ class Component(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.CharField(max_length=255, unique=True, db_index=True)  # Unique identifier (e.g., service name or groupId:artifactId)
     name = models.CharField(max_length=255)  # Display name
     description = models.TextField(blank=True, default='')
     component_type = models.CharField(max_length=20, choices=COMPONENT_TYPES, default='java')
 
     # Maven coordinates (optional, for Java components)
-    group_id = models.CharField(max_length=255, blank=True, default='')
+    maven_group_id = models.CharField(max_length=255, blank=True, default='', db_column='group_id')
     artifact_id = models.CharField(max_length=255, blank=True, default='')
     version = models.CharField(max_length=100, blank=True, default='')
 
@@ -95,7 +96,8 @@ class Component(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='components'
+        related_name='components',
+        db_column='node_group_id'
     )
 
     # Classification
@@ -120,26 +122,28 @@ class Component(models.Model):
     class Meta:
         ordering = ['name']
         indexes = [
-            models.Index(fields=['group_id', 'artifact_id']),
+            models.Index(fields=['maven_group_id', 'artifact_id'], name='dependencies_co_maven_g_idx'),
         ]
 
     def __str__(self):
         return self.name
 
     @property
-    def key(self):
-        """Return a unique key for the component."""
-        if self.group_id and self.artifact_id:
-            return f"{self.group_id}:{self.artifact_id}"
-        return str(self.id)
+    def basename(self):
+        """Return basename (last part of key after colon or slash)."""
+        if ':' in self.key:
+            return self.key.split(':')[-1]
+        if '/' in self.key:
+            return self.key.split('/')[-1]
+        return self.key
 
     @property
     def maven_coordinate(self):
         """Return Maven coordinate if available."""
-        if self.group_id and self.artifact_id:
+        if self.maven_group_id and self.artifact_id:
             if self.version:
-                return f"{self.group_id}:{self.artifact_id}:{self.version}"
-            return f"{self.group_id}:{self.artifact_id}"
+                return f"{self.maven_group_id}:{self.artifact_id}:{self.version}"
+            return f"{self.maven_group_id}:{self.artifact_id}"
         return None
 
 
